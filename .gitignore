@@ -1,0 +1,65 @@
+# ========================
+# ENVIRONMENT & SECRETS
+# ========================
+*.env
+ 
+# ========================
+# PYTHON
+# ========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+.mypy_cache/
+*.pyc
+ 
+# ========================
+# NODE / REACT
+# ========================
+node_modules/
+.npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+ 
+# ========================
+# VS CODE
+# ========================
+.vscode/
+*.code-workspace
+ 
+# ========================
+# VECTOR DB (ChromaDB)
+# ========================
+chroma_db/
+*.chroma
+*.sqlite3
+ 
+# ========================
+# OS FILES
+# ========================
+.DS_Store
+Thumbs.db
+Desktop.ini
+ 
+# ========================
+# LOGS
+# ========================
+logs/
+*.log
+ 
+# ========================
+# MISC
+# ========================
+*.zip
+*.tar.gz
+.cache/

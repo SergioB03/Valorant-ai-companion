@@ -1,349 +1,200 @@
 # 🤖 Claude Code Handoff — Valorant AI Companion
-> Instructions for Claude Code (VS Code) to continue building this project from current progress.
+
+> Living handoff doc. Updated at natural stopping points so any fresh Claude session (any machine) can pick up seamlessly. **Point at files; do not embed source** — embedded code rots fast.
+
+**Last refresh:** 2026-04-24 — both backend pillars complete, hardened, BYOK decision made.
 
 ---
 
-## 📍 Project Overview
-**Valorant AI Companion** — A full-stack AI-powered app with two pillars:
-1. **Performance Analyst** — pulls real Valorant match data via Henrik's API and uses Claude AI to generate personalized gameplay breakdowns
-2. **Mental Coach** — detects tilt patterns, emotional triggers, and delivers personalized mental strategies
+## 📍 Project at a glance
 
-**Developer:** Sergio Banuelos
-**Goal:** Portfolio piece targeting FAANG/Microsoft roles
+**Valorant AI Companion** — two-pillar AI app for the Valorant community:
+
+1. **Performance Analyst** — pulls match history via Henrik's unofficial Valorant API, sends to Claude for personalized gameplay breakdowns
+2. **Mental Coach** — deterministic tilt-signal detector + Claude-generated mental reset advice
+
+**Developer:** Sergio Banuelos — CS student at Western Governors University. This is a **portfolio piece targeting FAANG/Microsoft engineering roles**. Prioritize clean code, clear architecture, and good commit hygiene — employers will read this repo.
+
+**Environment:** Windows 11, VS Code, **Git Bash** is the primary terminal. Prefer forward slashes in paths. The `py` launcher is used (not `python`). No virtualenv currently — packages installed globally to Python 3.13.
+
 **Repo:** https://github.com/sergioB03/Valorant-ai-companion
 
 ---
 
-## ✅ What's Already Built & Working
+## ✅ Current state (as of last refresh)
 
-### Backend (Python + FastAPI)
-- ✅ FastAPI server running with uvicorn
-- ✅ CORS middleware configured for React dev server (localhost:5173)
-- ✅ Claude API connected and responding via Anthropic SDK
-- ✅ Henrik's Unofficial Valorant API connected (replaces Riot official API temporarily)
-- ✅ Account lookup by Riot ID working
-- ✅ Match history endpoint working and returning clean summarized data
-- ✅ Match summarizer built (extracts map, agent, KDA, HS%, win/loss from raw data)
-- ✅ Claude match analysis endpoint working — feeds real match data to Claude for personalized coaching
-- ✅ All routes registered in main.py
-- ✅ .env file set up with both API keys (never committed to GitHub)
-- ✅ Virtual environment set up in backend/venv
-- ✅ Riot production API key application submitted (pending approval)
-- ✅ Henrik API key active and in use
+### Working API endpoints
 
-### Project Files
-- ✅ README.md — full project description, stack, roadmap, Riot legal disclaimer
-- ✅ LICENSE — MIT
-- ✅ .gitignore — covers .env, venv, node_modules, __pycache__, ChromaDB
-- ✅ riot.txt — Riot verification file in repo root
+| Method | Endpoint | Returns | Notes |
+|---|---|---|---|
+| GET | `/` | JSON | Health check |
+| POST | `/claude/ask` | JSON | Generic prompt → Claude. Rate-limited 3/min |
+| GET | `/claude/analyze/{name}/{tag}` | JSON | Match analysis (legacy/Swagger-friendly) |
+| GET | `/claude/analyze/stream/{name}/{tag}` | SSE | Streaming match analysis for frontend |
+| GET | `/riot/account/{name}/{tag}` | JSON | Account lookup via Henrik |
+| GET | `/riot/matches/{name}/{tag}?size=N` | JSON | Match history summaries |
+| GET | `/mental/coach/{name}/{tag}` | JSON | Tilt signals + coaching (legacy/Swagger) |
+| GET | `/mental/coach/stream/{name}/{tag}` | SSE | Streaming tilt signals + coaching |
+
+### Streaming event contract
+
+Streaming endpoints emit Server-Sent Events with these event names:
+
+- `progress` — `{"stage": "fetching_matches" | "detecting_patterns" | "analyzing" | "coaching", ...}`
+- `signals` — *(mental coach only)* structured tilt-signal breakdown before the text starts
+- `token` — `{"text": "..."}` — Claude's streaming output, one chunk at a time
+- `done` — final summary with `match_count`
+- `error` — `{"message": "..."}` — any failure mid-stream (the HTTP status was already 200 by then)
+
+Frontend consumes with `EventSource` or an SSE-capable `fetch` reader.
+
+### What's hardened
+
+- Per-IP rate limiting via slowapi — `3/min` on `/claude/ask`, `10/min` on analyze + coach, `20/min` on riot
+- `httpx.Timeout(10.0, connect=5.0)` on all Henrik calls so upstream hangs can't stall workers
+- `urllib.parse.quote` on all path parameters before concatenating into external URLs
+- Exception messages sanitized — real errors go to `logger.exception`, client sees generic 4xx/5xx
+- `CLAUDE_MODEL` env var (default `claude-sonnet-4-6`) and `ALLOWED_ORIGINS` env var (default `http://localhost:5173`) so prod deploys don't need code changes
 
 ---
 
-## 📁 Current Project Structure
+## 🧠 Architecture — how to reason about it
+
+**Layered separation:**
+
+- **routes/** — HTTP concerns only. Validation, auth decorators, streaming response wrapping, error status codes. Should be thin.
+- **services/** — business logic. Pure Python where possible. No FastAPI imports.
+- **limiter.py** — single shared slowapi `Limiter` instance; imported by both `main.py` (registration) and route files (decorators).
+
+**Pattern: sync vs streaming.** Every Claude-powered feature has two forms:
+- A sync `service_function(...)` that returns a string — used by JSON endpoints
+- An `async stream_service_function(...)` that yields strings — used by SSE endpoints
+
+Both share one prompt-building helper so there's one source of truth for prompt text. See [backend/app/services/claude_service.py](backend/app/services/claude_service.py) — `_build_analysis_prompt` feeds both `analyze_matches` and `stream_analysis`. Same pattern in [backend/app/services/mental_service.py](backend/app/services/mental_service.py).
+
+**Pattern: algorithmic signals before LLM.** Mental Coach computes tilt signals in pure Python *first* (`detect_tilt_signals` — loss streak, KDA trend, HS% trend, most-lost map/agent, 0-100 tilt_score), then passes those structured signals into Claude's prompt. This is intentional: cheap + deterministic + testable algorithm feeds expensive + fuzzy LLM. Do this for future analytical features too.
+
+**Generic Claude streaming primitive.** `claude_service.stream_claude(prompt)` is the reusable async generator that wraps Anthropic's `async_client.messages.stream`. Features shouldn't call the Anthropic SDK directly — build a prompt and pass it to `ask_claude` or `stream_claude`.
+
+---
+
+## 🗂 File map
+
 ```
 Valorant-ai-companion/
-├── .gitignore
-├── LICENSE
-├── README.md
-├── riot.txt                          # Riot API verification file
+├── README.md                                # project description + roadmap checklist
+├── CLAUDE_HANDOFF.md                        # this file
+├── riot.txt                                 # Riot verification (needs deployed domain)
+├── .gitignore                               # covers .env, venv, .claude/, chroma_db
 ├── backend/
-│   ├── .env                          # API keys (NOT in GitHub)
-│   ├── requirements.txt
-│   ├── venv/                         # Python virtual environment
+│   ├── .env                                 # ANTHROPIC_API_KEY, RIOT_API_KEY (Henrik), optional CLAUDE_MODEL, ALLOWED_ORIGINS — NEVER committed
+│   ├── .env.example                         # template with placeholders
+│   ├── requirements.txt                     # pinned deps incl. slowapi==0.1.9
 │   └── app/
-│       ├── __init__.py
-│       ├── main.py                   # FastAPI app, CORS, router registration
+│       ├── main.py                          # FastAPI app, CORS, limiter registration, router includes
+│       ├── limiter.py                       # shared slowapi Limiter
 │       ├── routes/
-│       │   ├── __init__.py
-│       │   ├── claude.py             # /claude/ask and /claude/analyze endpoints
-│       │   ├── riot.py               # /riot/account and /riot/matches endpoints
-│       │   └── mental.py             # (empty - next to build)
-│       ├── services/
-│       │   ├── __init__.py
-│       │   ├── claude_service.py     # ask_claude() and analyze_matches()
-│       │   ├── riot_service.py       # Henrik API integration + summarize_matches()
-│       │   └── mental_service.py     # (empty - next to build)
-│       └── models/
-│           └── __init__.py
-└── frontend/                         # (empty - React app to be scaffolded)
+│       │   ├── claude.py                    # /claude/ask, /claude/analyze, /claude/analyze/stream
+│       │   ├── mental.py                    # /mental/coach, /mental/coach/stream
+│       │   └── riot.py                      # /riot/account, /riot/matches
+│       └── services/
+│           ├── claude_service.py            # Anthropic clients (sync + async), generic stream_claude, analyze helpers
+│           ├── mental_service.py            # detect_tilt_signals + coach prompt + coach/stream_coach
+│           └── riot_service.py              # Henrik API wrappers + summarize_matches
+└── frontend/                                # not yet scaffolded (React + Vite planned)
 ```
 
 ---
 
-## 📄 Current File Contents
+## 🔑 Environment variables (backend/.env)
 
-### backend/app/main.py
-```python
-from dotenv import load_dotenv
+Required:
+- `ANTHROPIC_API_KEY` — starts with `sk-ant-`. For local dev only; production will be BYOK (see next section).
+- `RIOT_API_KEY` — currently holds a **Henrik** key (format `HDEV-...`), obtained from the HenrikDev Discord. The var name is misleading; rename candidates exist but deferred.
 
-load_dotenv()
-
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from app.routes import claude, riot
-
-app = FastAPI(title="Valorant AI Companion", version="1.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(claude.router)
-app.include_router(riot.router)
-
-@app.get("/")
-def root():
-    return {"message": "Valorant AI Companion API is running 🚀"}
-```
-
-### backend/app/services/claude_service.py
-```python
-import os
-import anthropic
-from dotenv import load_dotenv
-from pathlib import Path
-
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
-
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
-def ask_claude(prompt: str) -> str:
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1000,
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
-    )
-    return message.content[0].text
-
-def analyze_matches(match_summaries: list) -> str:
-    matches_text = "\n".join([
-        f"- {m['map']} | {m['agent']} | {m['kills']}/{m['deaths']}/{m['assists']} | HS%: {m['headshot_percent']} | {'Win' if m['won'] else 'Loss'}"
-        for m in match_summaries
-    ])
-    
-    prompt = f"""You are an expert Valorant performance analyst and mental coach.
-    
-Here are the player's recent matches:
-{matches_text}
-
-Give a personalized analysis covering:
-1. Performance patterns you notice
-2. Strengths to build on
-3. Areas to improve
-4. One mental/tilt warning sign if any
-5. One actionable tip for their next game
-
-Keep it concise, direct and encouraging."""
-
-    return ask_claude(prompt)
-```
-
-### backend/app/services/riot_service.py
-```python
-import os
-import httpx
-from dotenv import load_dotenv
-from pathlib import Path
-
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
-
-# ---- OFFICIAL RIOT API (pending production approval) ----
-# RIOT_API_KEY = os.getenv("RIOT_API_KEY")
-#
-# async def get_account_by_riot_id(game_name: str, tag_line: str, region: str = "americas"):
-#     url = f"https://{region}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}"
-#     headers = {"X-Riot-Token": RIOT_API_KEY}
-#     async with httpx.AsyncClient() as client:
-#         response = await client.get(url, headers=headers)
-#         response.raise_for_status()
-#         return response.json()
-#
-# async def get_match_history(puuid: str, region: str = "americas"):
-#     url = f"https://{region}.api.riotgames.com/val/match/v1/matchlists/by-puuid/{puuid}"
-#     headers = {"X-Riot-Token": RIOT_API_KEY}
-#     async with httpx.AsyncClient() as client:
-#         response = await client.get(url, headers=headers)
-#         response.raise_for_status()
-#         return response.json()
-# ---------------------------------------------------------
-
-# ---- HENRIK UNOFFICIAL API (active) ----
-HENRIK_API_KEY = os.getenv("RIOT_API_KEY")
-HENRIK_BASE_URL = "https://api.henrikdev.xyz/valorant"
-
-async def get_account_by_riot_id(game_name: str, tag_line: str):
-    url = f"{HENRIK_BASE_URL}/v1/account/{game_name}/{tag_line}"
-    headers = {"Authorization": HENRIK_API_KEY}
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers)
-        response.raise_for_status()
-        return response.json()
-
-async def get_match_history(game_name: str, tag_line: str, region: str = "na"):
-    url = f"{HENRIK_BASE_URL}/v3/matches/{region}/{game_name}/{tag_line}"
-    headers = {"Authorization": HENRIK_API_KEY}
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers)
-        response.raise_for_status()
-        raw = response.json()
-        return summarize_matches(raw)
-
-def summarize_matches(raw_matches: dict) -> list:
-    summaries = []
-    matches = raw_matches.get("data", [])
-    
-    for match in matches:
-        info = match.get("metadata", {})
-        players = match.get("players", {}).get("all_players", [])
-        my_player = next((p for p in players if p.get("puuid") == match.get("metadata", {}).get("puuid")), players[0] if players else {})
-        stats = my_player.get("stats", {})
-        
-        summary = {
-            "match_id": info.get("matchid"),
-            "map": info.get("map"),
-            "mode": info.get("mode"),
-            "agent": my_player.get("character"),
-            "kills": stats.get("kills"),
-            "deaths": stats.get("deaths"),
-            "assists": stats.get("assists"),
-            "headshot_percent": stats.get("headshots"),
-            "score": stats.get("score"),
-            "won": my_player.get("team") == match.get("teams", {}).get("winning_team"),
-        }
-        summaries.append(summary)
-    
-    return summaries
-# -----------------------------------------
-```
-
-### backend/app/routes/claude.py
-```python
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from app.services.claude_service import ask_claude, analyze_matches
-from app.services.riot_service import get_match_history
-
-router = APIRouter(prefix="/claude", tags=["claude"])
-
-class PromptRequest(BaseModel):
-    prompt: str
-
-@router.post("/ask")
-def ask(request: PromptRequest):
-    response = ask_claude(request.prompt)
-    return {"response": response}
-
-@router.get("/analyze/{game_name}/{tag_line}")
-async def analyze(game_name: str, tag_line: str, region: str = "na"):
-    try:
-        matches = await get_match_history(game_name, tag_line, region)
-        analysis = analyze_matches(matches)
-        return {"analysis": analysis}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-```
-
-### backend/app/routes/riot.py
-```python
-from fastapi import APIRouter, HTTPException
-from app.services.riot_service import get_account_by_riot_id, get_match_history
-
-router = APIRouter(prefix="/riot", tags=["riot"])
-
-@router.get("/account/{game_name}/{tag_line}")
-async def get_account(game_name: str, tag_line: str):
-    try:
-        account = await get_account_by_riot_id(game_name, tag_line)
-        return account
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.get("/matches/{game_name}/{tag_line}")
-async def get_matches(game_name: str, tag_line: str, region: str = "na"):
-    try:
-        matches = await get_match_history(game_name, tag_line, region)
-        return matches
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-```
+Optional (documented in `.env.example`):
+- `CLAUDE_MODEL` — defaults to `claude-sonnet-4-6`
+- `ALLOWED_ORIGINS` — comma-separated CORS origins, defaults to `http://localhost:5173`
 
 ---
 
-## 🔑 Environment Variables
-File location: `backend/.env`
-```
-ANTHROPIC_API_KEY=sk-ant-...
-RIOT_API_KEY=...  # Henrik API key currently active
-```
+## 🚀 How to run locally (Git Bash)
 
----
-
-## 🚀 How to Start the Server
 ```bash
-cd backend
-source venv/Scripts/activate   # Windows Git Bash
-uvicorn app.main:app --reload
+# From project root, not backend/
+py -m uvicorn app.main:app --reload --port 8000 --app-dir backend
 ```
-Then open: http://127.0.0.1:8000/docs
 
----
+Then `http://localhost:8000/docs` for Swagger. Stream endpoints work in Swagger only partially — use `curl -N` for a real streaming view:
 
-## 📋 Working API Endpoints
-| Method | Endpoint | Description | Status |
-|--------|----------|-------------|--------|
-| GET | / | Health check | ✅ |
-| POST | /claude/ask | Send any prompt to Claude | ✅ |
-| GET | /claude/analyze/{game_name}/{tag_line} | Pull matches + Claude analysis | ✅ |
-| GET | /riot/account/{game_name}/{tag_line} | Get account info by Riot ID | ✅ |
-| GET | /riot/matches/{game_name}/{tag_line} | Get summarized match history | ✅ |
-
----
-
-## 🔜 What to Build Next (in order)
-
-### 1. Mental Coach Endpoint (mental.py + mental_service.py)
-Build `/mental/coach/{game_name}/{tag_line}` that:
-- Pulls match history
-- Analyzes loss streaks, performance drops, tilt patterns
-- Returns personalized mental reset routine
-- Stores session data for profile building over time
-
-### 2. React Frontend (Vite + React)
-Scaffold with:
 ```bash
-cd frontend
-npm create vite@latest . -- --template react
-npm install axios
+curl -N http://localhost:8000/claude/analyze/stream/<name>/<tag>
+curl -N http://localhost:8000/mental/coach/stream/<name>/<tag>
 ```
-Pages to build:
-- Home/landing page
-- Dashboard — enter Riot ID, see match analysis
-- Mental Coach — tilt detection + mental tips
-- Use Tailwind CSS for styling
 
-### 3. RAG Pipeline (ChromaDB)
-- Scrape/store Valorant patch notes in ChromaDB vector database
-- Add `/claude/meta` endpoint that answers meta questions using RAG
-- Install: `pip install chromadb sentence-transformers`
-
-### 4. Deployment
-- Frontend → Vercel
-- Backend → Render
-- Add environment variables to both platforms
+**Gotcha:** uvicorn `--reload` watches `.py` files only — **changes to `.env` require a full restart** to take effect.
 
 ---
 
-## 📌 Important Notes for Claude Code
-- Developer is on **Windows** using **Git Bash** — use forward slashes in paths
-- Always use `source venv/Scripts/activate` (not `source venv/bin/activate`) on Windows
-- The `.env` file is in `backend/` not the project root
-- Henrik API is temporary — official Riot API code is commented out in `riot_service.py` for when production key is approved
-- Model to use for Claude API calls: `claude-sonnet-4-20250514`
-- Keep commits descriptive using conventional commits format: `feat:`, `fix:`, `chore:`
-- Developer is comfortable with APIs but learning — explain decisions clearly
+## 🔜 What's next (in order)
+
+### 1. BYOK (Bring-Your-Own-Key) wiring — **do this before frontend**
+
+**Decision:** Users supply their own Anthropic API key. Server never pays for user-triggered Claude calls. Non-negotiable in production.
+
+**Why:** This is a passion project, not a business. Anthropic is the only meaningful cost center, and BYOK eliminates it entirely. Freemium/hosted-tier options stay on the shelf until the project gets traction.
+
+**Implementation plan (rough):**
+- Add `X-Anthropic-Key` header support on all `/claude/*` and `/mental/*` endpoints
+- Instantiate `anthropic.Anthropic(api_key=...)` / `anthropic.AsyncAnthropic(api_key=...)` **per request** using the header value — do not store or log the key
+- Gate the existing server-owned fallback behind `ALLOW_SERVER_KEY_FALLBACK=true` env var so local dev stays frictionless but production can't accidentally enable it
+- Refactor `ask_claude` / `stream_claude` to accept an optional client or key parameter, with the module-level client as the dev fallback
+- Update streaming endpoints to bubble up a clear SSE `error` event if the user's key is missing or invalid
+
+**Frontend implications (for when you build the React UI):** user pastes key into a settings panel → stored in `localStorage` only → attached as header on every API call. Explicit "we never send this anywhere but Anthropic" copy in the UI.
+
+### 2. React + Vite frontend
+
+Scaffolded in `frontend/` (doesn't exist yet). Pages: Home, Dashboard (enter Riot ID → see analysis), Mental Coach (tilt signals + coaching), Settings (for BYOK key). Tailwind CSS planned. Use `EventSource` to consume the SSE streams.
+
+**Entertaining loading UX:** when the user hits analyze/coach, show rotating Valorant-flavored copy ("Checking your headspace...", "Asking Claude what Brimstone would say...", etc.) keyed to the `progress` event `stage` field. Dumb client-side timer is fine for v1; upgrade to strict SSE-driven later if it feels flat.
+
+### 3. Deployment
+
+- Frontend → **Vercel** (free tier fine for passion project)
+- Backend → **Render** free tier (sleeps after 15 min, cold start ~30s — acceptable). Add all env vars to the dashboard.
+- Once backend is deployed at a real domain, update Riot's production key application with the verified `riot.txt` URL and wait for approval.
+
+### 4. RAG pipeline (ChromaDB)
+
+Meta/patch-note questions via `/claude/meta` with RAG over patch notes + pro match data. `pip install chromadb sentence-transformers`. Deferred — not critical for the core pitch.
+
+### 5. User session memory
+
+Longer-term: tilt profile that improves over sessions. Needs a DB (SQLite for simple, Postgres for prod). Deferred.
+
+### 6. Demo video
+
+Last step before calling the project "portfolio-ready."
+
+---
+
+## ⚠️ Things NOT to do
+
+- **Don't** hardcode the Claude model name in new code. Use `CLAUDE_MODEL` env var via `claude_service`.
+- **Don't** call the Anthropic SDK directly from routes or mental_service. Go through `ask_claude` / `stream_claude`.
+- **Don't** interpolate user input directly into external URLs. Wrap with `urllib.parse.quote(value, safe='')`.
+- **Don't** return `str(e)` in error responses. `logger.exception(...)` server-side, return a generic `detail` to the client.
+- **Don't** add a server-owned Anthropic key path that works in production. BYOK only.
+- **Don't** ask the user to paste API keys in chat — keys live in `.env` or (future) localStorage only.
+- **Don't** commit `.claude/` (already gitignored) or `.env` (already gitignored).
+- **Don't** treat this handoff as source-of-truth for code. Read the actual files. This doc describes intent and architecture, code describes reality.
+
+---
+
+## 📌 Small project quirks worth knowing
+
+- Riot production API key is **pending approval**. Henrik's unofficial API (`api.henrikdev.xyz`) is the active data source. Official Riot code lives commented-out in `riot_service.py` for the day approval lands.
+- The env var is named `RIOT_API_KEY` but currently holds the **Henrik** key. Deliberate not-yet-renamed compromise.
+- Henrik's dev key expires/needs-rotating when abused — regenerate from their Discord if auth breaks.
+- `.claude/` directory is VS Code Claude Code local settings — gitignored, machine-local, never pushed.

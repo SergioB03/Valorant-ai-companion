@@ -1,15 +1,18 @@
 import os
-import anthropic
-from dotenv import load_dotenv
 from pathlib import Path
 
+import anthropic
+from dotenv import load_dotenv
+
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 def ask_claude(prompt: str) -> str:
     message = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model=CLAUDE_MODEL,
         max_tokens=1000,
         messages=[
             {"role": "user", "content": prompt}

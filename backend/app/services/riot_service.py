@@ -1,12 +1,13 @@
 import os
+from pathlib import Path
+from urllib.parse import quote
+
 import httpx
 from dotenv import load_dotenv
-from pathlib import Path
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
-
-
+HTTP_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
 
 # OFFICIAL RIOT API (Pending production key approval, currently using a development key with limited access)
@@ -37,18 +38,18 @@ HENRIK_API_KEY = os.getenv("RIOT_API_KEY")
 HENRIK_BASE_URL = "https://api.henrikdev.xyz/valorant"
 
 async def get_account_by_riot_id(game_name: str, tag_line: str):
-    url = f"{HENRIK_BASE_URL}/v1/account/{game_name}/{tag_line}"
+    url = f"{HENRIK_BASE_URL}/v1/account/{quote(game_name, safe='')}/{quote(tag_line, safe='')}"
     headers = {"Authorization": HENRIK_API_KEY}
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         response = await client.get(url, headers=headers)
         response.raise_for_status()
         return response.json()
 
 async def get_match_history(game_name: str, tag_line: str, region: str = "na", size: int = 3):
-    url = f"{HENRIK_BASE_URL}/v3/matches/{region}/{game_name}/{tag_line}"
+    url = f"{HENRIK_BASE_URL}/v3/matches/{quote(region, safe='')}/{quote(game_name, safe='')}/{quote(tag_line, safe='')}"
     headers = {"Authorization": HENRIK_API_KEY}
     params = {"size": size}
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         response = await client.get(url, headers=headers, params=params)
         response.raise_for_status()
         return response.json()

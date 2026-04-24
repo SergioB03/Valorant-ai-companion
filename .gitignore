@@ -36,6 +36,11 @@ yarn-error.log*
 # ========================
 .vscode/
 *.code-workspace
+
+# ========================
+# CLAUDE CODE (local settings)
+# ========================
+.claude/
  
 # ========================
 # VECTOR DB (ChromaDB)

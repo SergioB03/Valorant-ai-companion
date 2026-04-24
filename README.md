@@ -34,17 +34,19 @@ This project is my attempt to bridge that gap — combining my passion for the g
 
 Features Roadmap:
 
- Project scaffolding and architecture
- Riot API integration — match history, stats
- FastAPI backend with Claude API integration
- Match performance analysis endpoint
- Tilt pattern detection algorithm
- Mental Coach AI responses
- React frontend dashboard
- RAG pipeline — patch notes + meta data
- User session memory (mental profile over time)
- Deployment to Vercel + Render
- Demo video
+- [x] Project scaffolding and architecture
+- [x] Riot API integration — match history, stats
+- [x] FastAPI backend with Claude API integration
+- [x] Match performance analysis endpoint (JSON + SSE streaming)
+- [x] Tilt pattern detection algorithm
+- [x] Mental Coach AI responses (JSON + SSE streaming)
+- [x] Backend hardening — rate limiting, timeouts, sanitized errors
+- [ ] BYOK (Bring-Your-Own-Key) wiring for Anthropic
+- [ ] React frontend dashboard
+- [ ] RAG pipeline — patch notes + meta data
+- [ ] User session memory (mental profile over time)
+- [ ] Deployment to Vercel + Render
+- [ ] Demo video
 
 
 Getting Started

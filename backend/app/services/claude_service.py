@@ -49,12 +49,16 @@ def analyze_matches(match_summaries: list) -> str:
     return ask_claude(_build_analysis_prompt(match_summaries))
 
 
-async def stream_analysis(match_summaries: list) -> AsyncIterator[str]:
-    prompt = _build_analysis_prompt(match_summaries)
+async def stream_claude(prompt: str, max_tokens: int = 1000) -> AsyncIterator[str]:
     async with async_client.messages.stream(
         model=CLAUDE_MODEL,
-        max_tokens=1000,
+        max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],
     ) as stream:
         async for text in stream.text_stream:
             yield text
+
+
+async def stream_analysis(match_summaries: list) -> AsyncIterator[str]:
+    async for text in stream_claude(_build_analysis_prompt(match_summaries)):
+        yield text

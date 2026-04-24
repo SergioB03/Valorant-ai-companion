@@ -6,7 +6,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.limiter import limiter
-from app.routes import claude, riot
+from app.routes import claude, mental, riot
 
 # Services load their own .env on import; no top-level load_dotenv needed.
 
@@ -30,6 +30,7 @@ app.add_middleware(
 )
 
 app.include_router(claude.router)
+app.include_router(mental.router)
 app.include_router(riot.router)
 
 @app.get("/")

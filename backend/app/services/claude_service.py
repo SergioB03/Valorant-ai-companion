@@ -1,3 +1,4 @@
+import json
 import os
 import anthropic
 from dotenv import load_dotenv
@@ -49,3 +50,50 @@ Keep it concise, direct and encouraging.
 Plain text only — no markdown headers, asterisks, or bullet syntax. Use short paragraphs and numbered lines like '1.' at most."""
 
     return ask_claude(prompt)
+
+ANALYSIS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "overview": {"type": "string"},
+        "strengths": {"type": "array", "items": {"type": "string"}},
+        "weaknesses": {"type": "array", "items": {"type": "string"}},
+        "tilt_warning": {"type": ["string", "null"]},
+        "tip": {"type": "string"},
+    },
+    "required": ["overview", "strengths", "weaknesses", "tilt_warning", "tip"],
+    "additionalProperties": False,
+}
+
+def analyze_matches_structured(match_summaries: list) -> dict:
+    matches_text = "\n".join([
+        f"- {m['map']} | {m['agent']} | {m['kills']}/{m['deaths']}/{m['assists']} | HS%: {m['headshot_percent']} | {'Win' if m['won'] else 'Loss'}"
+        for m in match_summaries
+    ])
+
+    prompt = f"""You are an expert Valorant performance analyst and mental coach.
+
+Here are the player's recent matches (newest first):
+{matches_text}
+
+Produce a personalized analysis as JSON with these fields:
+- overview: a 2-3 sentence read of how the player is doing right now
+- strengths: a list of short strengths to build on (2-4 items)
+- weaknesses: a list of short areas to improve (2-4 items)
+- tilt_warning: one mental/tilt warning sign if you see one, otherwise null
+- tip: one concrete, actionable tip for their next game
+
+Keep every item concise, direct and encouraging. Plain text only inside each string — no markdown."""
+
+    message = client.messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=4000,
+        thinking={"type": "adaptive"},
+        output_config={"format": {"type": "json_schema", "schema": ANALYSIS_SCHEMA}},
+        messages=[
+            {"role": "user", "content": prompt}
+        ],
+    )
+    text = next((block.text for block in message.content if block.type == "text"), "")
+    if not text and message.stop_reason == "max_tokens":
+        raise RuntimeError("Claude hit the token limit before producing the analysis")
+    return json.loads(text)

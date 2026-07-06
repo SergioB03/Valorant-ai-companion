@@ -30,6 +30,7 @@ The repo root contains `render.yaml`, so Render can set everything up from the f
    | `ANTHROPIC_API_KEY` | your Anthropic key |
    | `RIOT_API_KEY` | your HenrikDev key |
    | `CORS_ORIGINS` | `http://localhost:5173` for now — you'll replace this with the Vercel URL in step 3 |
+   | `ADMIN_TOKEN` | optional — a long random secret that unlocks `GET /analytics/summary` (sent as the `X-Admin-Token` header). Leave it empty to keep the summary endpoint disabled (403). |
 
    `CLAUDE_MODEL` is preset to `claude-opus-4-8` by the blueprint.
 4. Click **Apply** and wait for the build.
@@ -39,13 +40,13 @@ The repo root contains `render.yaml`, so Render can set everything up from the f
 
 ### Free tier gotchas (read this)
 
-- **The disk is ephemeral.** Everything under `backend/data/` — the SQLite mental-profile database (`companion.sqlite3`) and the ChromaDB vector index (`chroma_db/`) — is wiped on **every deploy AND every cold start** after an idle spin-down (see below). SQLite history and the Chroma index rebuild from scratch each time, and ChromaDB re-downloads its embedding model (~80 MB) too. Totally fine for a demo; for real persistence you'd attach a Render persistent disk or move to a hosted database.
+- **The disk is ephemeral.** Everything under `backend/data/` — the SQLite database (`companion.sqlite3`, which holds both mental profiles and analytics events) and the ChromaDB vector index (`chroma_db/`) — is wiped on **every deploy AND every cold start** after an idle spin-down (see below). SQLite history (including analytics) and the Chroma index rebuild from scratch each time, and ChromaDB re-downloads its embedding model (~80 MB) too. Totally fine for a demo; for real persistence you'd attach a Render persistent disk or move to a hosted database.
 - **The RAG index warms in the background at startup.** The app kicks off the index build (embedding-model download + embedding the knowledge corpus) when the server boots, so the first `POST /meta/ask` isn't doing the full build in-request. Still, expect the first few minutes after a deploy or cold start to be slow while that warm-up finishes.
 - **Free services spin down when idle.** After ~15 minutes without traffic, the next request pays a cold start of up to a minute — and, per the first point, the instance comes back with a fresh disk.
 
 ### Known limitations
 
-- `POST /claude/ask` is an **unauthenticated** endpoint that costs Anthropic credits on every call. Don't publish the backend URL widely — or remove that route before deploying publicly.
+- `POST /claude/ask` is an **unauthenticated** endpoint that costs Anthropic credits on every call. It's rate-limited to 5 requests/minute per client IP (the other Claude-backed endpoints have their own per-IP limits too), which caps the burn rate but doesn't eliminate it — still, don't publish the backend URL widely, or remove that route before deploying publicly.
 
 ---
 
@@ -85,3 +86,10 @@ The repo root contains `render.yaml`, so Render can set everything up from the f
 - Ask a meta question — the first one may still be slow if the background index warm-up hasn't finished.
 - If the browser console shows CORS errors, the `CORS_ORIGINS` value doesn't exactly match the frontend origin (check for `https://` and a missing/extra trailing slash).
 - `GET /meta/status` on the backend tells you whether the RAG index is ready; a `503` from `/meta/ask` means ChromaDB isn't available on the instance.
+- If you set `ADMIN_TOKEN`, check the analytics pipeline:
+
+  ```bash
+  curl -H "X-Admin-Token: <your-token>" https://<your-service>.onrender.com/analytics/summary
+  ```
+
+  You should get a JSON summary (totals, daily counts, funnel, latencies). Without the header — or with `ADMIN_TOKEN` unset on the service — it returns 403. Remember the free-tier caveat above: analytics live in the ephemeral SQLite file, so counts reset on every deploy/cold start.

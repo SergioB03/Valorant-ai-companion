@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { askMeta } from "../api.js";
-import { stripMarkdown } from "../utils.js";
+import { splitParagraphs, stripMarkdown } from "../utils.js";
 import { Spinner, ErrorBanner } from "./common.jsx";
+import { Insignia } from "./Insignia.jsx";
+import { track } from "../analytics.js";
 
 const EXAMPLES = [
   "What changed in the most recent patches?",
@@ -31,11 +33,23 @@ export default function MetaTab() {
       asked: text,
       result: null,
     });
+    const t0 = performance.now();
     try {
       const result = await askMeta(text);
+      track("meta_question", {
+        latency_ms: Math.round(performance.now() - t0),
+        ok: true,
+        unavailable: false,
+      });
       setState((s) => ({ ...s, loading: false, result }));
     } catch (err) {
-      if (err.status === 503) {
+      const unavailable = err.status === 503;
+      track("meta_question", {
+        latency_ms: Math.round(performance.now() - t0),
+        ok: false,
+        unavailable,
+      });
+      if (unavailable) {
         setState((s) => ({ ...s, loading: false, unavailable: true }));
       } else {
         setState((s) => ({ ...s, loading: false, error: err.message }));
@@ -112,29 +126,43 @@ export default function MetaTab() {
       ) : null}
 
       {state.result ? (
-        <section className="panel">
+        <section className="panel rise">
           <div className="panel-head-row">
-            <h3 className="panel-title">Answer</h3>
-            <span className="chip">{state.asked}</span>
+            <h3 className="panel-title">Intel</h3>
+            <Insignia kind="neutral" label="Knowledge base" />
           </div>
-          <div className="prose">{stripMarkdown(state.result.answer)}</div>
+          <span className="chip asked-chip">{state.asked}</span>
+          <div className="answer-body">
+            {splitParagraphs(stripMarkdown(state.result.answer)).map(
+              (p, i) => (
+                <p
+                  key={i}
+                  className="rise"
+                  style={{ animationDelay: `${80 + i * 70}ms` }}
+                >
+                  {p}
+                </p>
+              )
+            )}
+          </div>
           {state.result.sources && state.result.sources.length > 0 ? (
-            <details className="sources">
-              <summary>Sources ({state.result.sources.length})</summary>
-              <ul>
+            <div className="sources-row">
+              <span className="mini-title">
+                Sources ({state.result.sources.length})
+              </span>
+              <div className="chips">
                 {state.result.sources.map((s, i) => (
-                  <li key={i}>
-                    <span className="source-name">
-                      {s.source}
-                      {s.section ? ` › ${s.section}` : ""}
-                    </span>
-                    {s.snippet ? (
-                      <p className="source-snippet">{s.snippet}…</p>
-                    ) : null}
-                  </li>
+                  <span
+                    key={i}
+                    className="chip source-chip"
+                    title={s.snippet ? `${s.snippet}…` : undefined}
+                  >
+                    {s.source}
+                    {s.section ? ` › ${s.section}` : ""}
+                  </span>
                 ))}
-              </ul>
-            </details>
+              </div>
+            </div>
           ) : null}
         </section>
       ) : null}

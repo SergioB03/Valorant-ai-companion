@@ -48,6 +48,46 @@ export function stripMarkdown(text) {
     .replace(/\*\*([^*]+)\*\*/g, "$1");
 }
 
+export function prefersReducedMotion() {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+// Break coach/answer text into readable paragraphs — never one blob.
+// Splits on newlines first; very long single paragraphs get re-chunked on
+// sentence boundaries.
+export function splitParagraphs(text) {
+  if (typeof text !== "string") return [];
+  const parts = text
+    .split(/\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const out = [];
+  for (const part of parts) {
+    if (part.length <= 320) {
+      out.push(part);
+      continue;
+    }
+    const sentences = part.match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) || [
+      part,
+    ];
+    let buf = "";
+    for (const sentence of sentences) {
+      if (buf && buf.length + sentence.length > 260) {
+        out.push(buf.trim());
+        buf = sentence;
+      } else {
+        buf += sentence;
+      }
+    }
+    if (buf.trim()) out.push(buf.trim());
+  }
+  return out;
+}
+
 export function relativeDate(value) {
   const d = parseDate(value);
   if (!d) return typeof value === "string" ? value : "";

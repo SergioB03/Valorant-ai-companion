@@ -1,8 +1,9 @@
 from statistics import mean
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from app.errors import upstream_to_http
+from app.limiter import limiter
 from app.services.riot_service import get_match_history, summarize_matches
 from app.services.mental_service import detect_tilt, generate_coach_message, coach_chat
 from app.db import save_snapshot, get_snapshots, save_session, get_sessions
@@ -16,8 +17,14 @@ class CoachRequest(BaseModel):
     message: str
 
 
-def _tilt_check_sync(raw: dict, game_name: str, tag_line: str) -> dict:
-    summaries = summarize_matches(raw, game_name, tag_line)
+def _filter_mode(summaries: list, mode: str | None) -> list:
+    if not mode:
+        return summaries
+    return [m for m in summaries if (m.get("mode") or "").lower() == mode.lower()]
+
+
+def _tilt_check_sync(raw: dict, game_name: str, tag_line: str, mode: str | None = None) -> dict:
+    summaries = _filter_mode(summarize_matches(raw, game_name, tag_line), mode)
     if not summaries:
         raise HTTPException(status_code=404, detail="No matches found for that name/tag")
     report = detect_tilt(summaries, game_name, tag_line)
@@ -34,10 +41,11 @@ def _tilt_check_sync(raw: dict, game_name: str, tag_line: str) -> dict:
 
 
 @router.get("/tilt-check/{game_name}/{tag_line}")
-async def tilt_check(game_name: str, tag_line: str, region: str = "na", size: int = 10):
+@limiter.limit("10/minute")
+async def tilt_check(request: Request, game_name: str, tag_line: str, region: str = "na", size: int = 10, mode: str = "competitive"):
     try:
-        raw = await get_match_history(game_name, tag_line, region, size)
-        return await run_in_threadpool(_tilt_check_sync, raw, game_name, tag_line)
+        raw = await get_match_history(game_name, tag_line, region, size, mode=mode or None)
+        return await run_in_threadpool(_tilt_check_sync, raw, game_name, tag_line, mode or None)
     except HTTPException:
         raise
     except Exception as e:
@@ -48,7 +56,7 @@ def _coach_sync(raw: dict | None, request: CoachRequest, riot_id: str) -> dict:
     report = None
     if raw is not None:
         try:
-            summaries = summarize_matches(raw, request.game_name, request.tag_line)
+            summaries = _filter_mode(summarize_matches(raw, request.game_name, request.tag_line), "competitive")
             if summaries:
                 report = detect_tilt(summaries, request.game_name, request.tag_line)
         except Exception:
@@ -65,15 +73,16 @@ def _coach_sync(raw: dict | None, request: CoachRequest, riot_id: str) -> dict:
 
 
 @router.post("/coach")
-async def coach(request: CoachRequest):
-    riot_id = f"{request.game_name}#{request.tag_line}".lower()
+@limiter.limit("15/minute")
+async def coach(request: Request, body: CoachRequest):
+    riot_id = f"{body.game_name}#{body.tag_line}".lower()
     raw = None
     try:
-        raw = await get_match_history(request.game_name, request.tag_line, request.region, 10)
+        raw = await get_match_history(body.game_name, body.tag_line, body.region, 10, mode="competitive")
     except Exception:
         raw = None
     try:
-        return await run_in_threadpool(_coach_sync, raw, request, riot_id)
+        return await run_in_threadpool(_coach_sync, raw, body, riot_id)
     except HTTPException:
         raise
     except Exception as e:

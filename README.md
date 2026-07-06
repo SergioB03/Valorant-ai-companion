@@ -38,7 +38,7 @@ Valorant AI Companion is a full-stack AI-powered app with two core pillars:
 | AI | Anthropic Claude API |
 | Game Data | HenrikDev API (Riot API migration pending) |
 | Vector DB (RAG) | ChromaDB |
-| Profile Storage | SQLite |
+| Storage (profiles + analytics) | SQLite |
 | Deployment | Vercel (frontend) + Render (backend) |
 | Version Control | GitHub |
 
@@ -62,27 +62,51 @@ This project is my attempt to bridge that gap — combining my passion for the g
 - [x] RAG pipeline — patch notes + meta data
 - [x] User session memory (mental profile over time)
 - [x] Deployment configs for Vercel + Render
+- [x] Anonymous usage analytics + per-IP rate limiting
 - [ ] Demo video
 - [ ] Migrate to production Riot API key
 
-## API Endpoints
-
-Interactive docs live at `/docs` when the backend is running.
-
-| Method | Endpoint | What it does |
-|---|---|---|
-| `GET` | `/riot/account/{name}/{tag}` | Account lookup — level, region, player card |
-| `GET` | `/riot/matches/{name}/{tag}?region=na&size=10` | Recent match summaries, newest first (map, agent, K/D/A, HS%, win/loss) — `size` defaults to 3 |
-| `POST` | `/claude/ask` | Free-form question straight to Claude — body `{"prompt": "..."}` |
-| `GET` | `/claude/analyze/{name}/{tag}?region=na&size=10` | Claude's plain-English breakdown of your recent matches, returned as plain text — optional `size` (default 10, max 10) |
-| `GET` | `/mental/tilt-check/{name}/{tag}?region=na&size=10` | Tilt report — score 0–100, level, signals, triggers, coach message |
-| `POST` | `/mental/coach` | Chat with the Mental Coach — body `{"game_name", "tag_line", "region", "message"}`; replies with your current tilt context in mind |
-| `GET` | `/mental/profile/{name}/{tag}` | Your mental profile — tilt snapshot history, coach sessions, and trend |
-| `POST` | `/meta/ask` | Meta Q&A via RAG — body `{"question": "..."}`; answers with cited sources |
-| `GET` | `/meta/status` | RAG index status (ready, documents, chunks) |
-| `POST` | `/meta/reindex` | Rebuild the knowledge index from `backend/data/knowledge/` |
-
 ## Getting Started
+
+### Quickstart (60 seconds)
+
+1. **Clone:**
+
+   ```bash
+   git clone https://github.com/SergioB03/Valorant-ai-companion.git
+   cd Valorant-ai-companion
+   ```
+
+2. **Grab your two API keys:**
+   - **HenrikDev key** (match data) — join the HenrikDev Discord (required for dashboard login; the invite is on [docs.henrikdev.xyz](https://docs.henrikdev.xyz)), then sign in with Discord at [dashboard.henrikdev.xyz](https://dashboard.henrikdev.xyz) and generate a key.
+   - **Anthropic key** (Claude AI) — create one at [console.anthropic.com](https://console.anthropic.com).
+
+3. **Create your env file** and paste both keys in:
+
+   ```bash
+   cp backend/.env.example backend/.env    # Windows: copy backend\.env.example backend\.env
+   ```
+
+4. **Run it:**
+   - **Windows:** double-click (or run) `start-dev.bat`. First run bootstraps everything — creates the venv, installs Python and npm dependencies, creates `backend/.env` if you skipped step 3 — then launches the backend on port **8001**, the frontend on port **5173**, and opens the app in your browser.
+   - **macOS/Linux:** two terminals:
+
+     ```bash
+     # Terminal 1 — backend (http://localhost:8000)
+     cd backend
+     python -m venv venv && source venv/bin/activate
+     pip install -r requirements.txt
+     uvicorn app.main:app --reload
+     ```
+
+     ```bash
+     # Terminal 2 — frontend (http://localhost:5173)
+     cd frontend
+     npm install
+     npm run dev
+     ```
+
+Open `http://localhost:5173`, search a Riot ID (`name` + `#tag`), and you're in.
 
 ### Prerequisites
 
@@ -91,7 +115,7 @@ Interactive docs live at `/docs` when the backend is running.
 - HenrikDev API key (used for match data while the production Riot key is pending — keys are issued through [HenrikDev's docs](https://docs.henrikdev.xyz) / Discord; [developer.riotgames.com](https://developer.riotgames.com) is only relevant for the future official-API migration)
 - Anthropic API key → [console.anthropic.com](https://console.anthropic.com)
 
-### Backend Setup
+### Backend Setup (manual)
 
 ```bash
 cd backend
@@ -107,7 +131,16 @@ ANTHROPIC_API_KEY=your-anthropic-api-key-here
 RIOT_API_KEY=your-henrikdev-api-key-here
 CLAUDE_MODEL=claude-opus-4-8
 CORS_ORIGINS=http://localhost:5173
+ADMIN_TOKEN=
 ```
+
+| Variable | Required | What it does |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | yes | Claude API key — powers analysis, coach, and meta Q&A |
+| `RIOT_API_KEY` | yes | HenrikDev API key — match history and account data |
+| `CLAUDE_MODEL` | no | Claude model id (defaults are fine) |
+| `CORS_ORIGINS` | no | Comma-separated allowed frontend origins (default `http://localhost:5173`) |
+| `ADMIN_TOKEN` | no | Unlocks `GET /analytics/summary` via the `X-Admin-Token` header. Leave empty to keep the summary endpoint disabled (it returns 403). |
 
 Run the server:
 
@@ -117,7 +150,9 @@ uvicorn app.main:app --reload
 
 The API is now at `http://localhost:8000` (docs at `http://localhost:8000/docs`).
 
-### Frontend Setup
+> `start-dev.bat` runs this same server on port **8001** instead (8000 is a common conflict on Windows) and points the frontend at it automatically via `VITE_API_URL`.
+
+### Frontend Setup (manual)
 
 ```bash
 cd frontend
@@ -125,11 +160,42 @@ npm install
 npm run dev
 ```
 
-The dashboard is now at `http://localhost:5173`. It talks to `http://localhost:8000` by default — set `VITE_API_URL` in a `frontend/.env` file if your backend lives elsewhere.
+The dashboard is now at `http://localhost:5173`. It talks to `http://localhost:8000` by default — set `VITE_API_URL` in a `frontend/.env` file if your backend lives elsewhere (e.g. `VITE_API_URL=http://localhost:8001`).
 
 ### Deployment
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for the full walkthrough: Render Blueprint (`render.yaml`) for the backend, Vercel for the frontend, and wiring `CORS_ORIGINS` between them.
+
+## API Endpoints
+
+Interactive docs live at `/docs` when the backend is running.
+
+| Method | Endpoint | What it does |
+|---|---|---|
+| `GET` | `/riot/account/{name}/{tag}` | Account lookup — level, region, player card |
+| `GET` | `/riot/matches/{name}/{tag}?region=na&size=10` | Recent match summaries, newest first (map, agent, K/D/A, HS%, win/loss) — `size` defaults to 3 |
+| `POST` | `/claude/ask` | Free-form question straight to Claude — body `{"prompt": "..."}` |
+| `GET` | `/claude/analyze/{name}/{tag}?region=na&size=10` | Claude's structured breakdown of your recent matches — `analysis` object with `overview`, `strengths[]`, `weaknesses[]`, `tilt_warning` (string or null), and `tip` — optional `size` (default 10, max 10) |
+| `GET` | `/mental/tilt-check/{name}/{tag}?region=na&size=10` | Tilt report — score 0–100, level, signals, triggers, coach message |
+| `POST` | `/mental/coach` | Chat with the Mental Coach — body `{"game_name", "tag_line", "region", "message"}`; replies with your current tilt context in mind |
+| `GET` | `/mental/profile/{name}/{tag}` | Your mental profile — tilt snapshot history, coach sessions, and trend |
+| `POST` | `/meta/ask` | Meta Q&A via RAG — body `{"question": "..."}`; answers with cited sources |
+| `GET` | `/meta/status` | RAG index status (ready, documents, chunks) |
+| `POST` | `/meta/reindex` | Rebuild the knowledge index from `backend/data/knowledge/` |
+| `POST` | `/analytics/events` | Ingests batches of anonymous usage events from the frontend (1–25 events per batch, no auth, rate-limited) — returns `204 No Content` |
+| `GET` | `/analytics/summary` | Admin-only usage aggregates — totals, 14-day daily counts, per-event counts, funnel, latency percentiles, error counts. Requires an `X-Admin-Token` header matching the `ADMIN_TOKEN` env var; returns 403 if `ADMIN_TOKEN` is unset |
+
+> **Rate limiting:** Claude-backed endpoints and analytics ingestion are rate-limited per client IP — `/claude/ask` 5/min, `/claude/analyze` and `/mental/tilt-check` 10/min, `/mental/coach` and `/meta/ask` 15/min, `/analytics/events` 120/min. Exceeding a limit returns `429 Too Many Requests`.
+
+### Analytics & Privacy
+
+The frontend sends a small set of anonymous usage events (tab views, searches, analysis runs, latencies, errors) so I can see what people actually use. Design details live in [ANALYTICS.md](ANALYTICS.md). The short version:
+
+- **Anonymous** — a random UUID in `localStorage` identifies a browser, nothing else. No accounts, no cookies.
+- **No PII** — Riot names/tags are never sent in events; a player search reports only the region and whether the lookup succeeded.
+- **Do Not Track respected** — if your browser sets DNT, the client sends nothing.
+- **Opt out at build time** — set `VITE_ANALYTICS=off` in the frontend env to turn the whole client into a no-op.
+- **Reading the data** — `GET /analytics/summary` is only available when the backend has `ADMIN_TOKEN` set and the request carries the matching `X-Admin-Token` header.
 
 ## Project Structure
 
@@ -137,19 +203,23 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for the full walkthrough: Render Blueprint (`
 valorant-ai-companion/
 ├── render.yaml                 # Render Blueprint (backend deploy)
 ├── DEPLOYMENT.md               # Deploy walkthrough (Render + Vercel)
+├── ANALYTICS.md                # Analytics design doc (events, privacy, tradeoffs)
+├── start-dev.bat               # Windows one-click dev launcher (backend :8001 + frontend :5173)
 ├── LICENSE
 ├── riot.txt                    # Riot site verification
 ├── backend/
 │   ├── app/
-│   │   ├── main.py             # FastAPI app, CORS, router wiring
-│   │   ├── db.py               # SQLite storage for the mental profile
+│   │   ├── main.py             # FastAPI app, CORS, rate limiter, router wiring
+│   │   ├── db.py               # SQLite storage (mental profile + analytics events)
 │   │   ├── errors.py           # Upstream-error → HTTP error mapping
+│   │   ├── limiter.py          # Per-IP rate limiter (slowapi)
 │   │   ├── models/             # Shared pydantic models
 │   │   ├── routes/
 │   │   │   ├── riot.py         # Account + match history endpoints
 │   │   │   ├── claude.py       # Claude Q&A + match analysis endpoints
 │   │   │   ├── mental.py       # Tilt check, coach chat, profile endpoints
-│   │   │   └── meta.py         # RAG meta Q&A endpoints
+│   │   │   ├── meta.py         # RAG meta Q&A endpoints
+│   │   │   └── analytics.py    # Anonymous event ingestion + admin summary
 │   │   └── services/
 │   │       ├── riot_service.py     # HenrikDev API client + match summarizer
 │   │       ├── claude_service.py   # Claude API wrapper
@@ -158,7 +228,7 @@ valorant-ai-companion/
 │   ├── data/
 │   │   ├── knowledge/          # Markdown corpus for RAG (patches, meta, maps...)
 │   │   ├── chroma_db/          # Vector index (generated, gitignored)
-│   │   └── companion.sqlite3   # Mental profile DB (generated, gitignored)
+│   │   └── companion.sqlite3   # SQLite DB — mental profiles + analytics (generated, gitignored)
 │   ├── .env.example
 │   └── requirements.txt
 └── frontend/
@@ -170,6 +240,7 @@ valorant-ai-companion/
         ├── main.jsx
         ├── App.jsx
         ├── api.js              # Fetch wrappers for the backend endpoints
+        ├── analytics.js        # Anonymous, DNT-respecting usage-event client
         ├── utils.js            # Shared formatting helpers (dates, etc.)
         ├── index.css
         └── components/

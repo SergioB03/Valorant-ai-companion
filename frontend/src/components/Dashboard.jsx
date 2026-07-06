@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getAccount, getMatches } from "../api.js";
-import { relativeDate } from "../utils.js";
+import { prefersReducedMotion, relativeDate } from "../utils.js";
 import { ErrorBanner, EmptyState, Skeleton } from "./common.jsx";
+import { track } from "../analytics.js";
 
 function computeStats(matches) {
   if (!matches || matches.length === 0) return null;
@@ -22,11 +23,42 @@ function computeStats(matches) {
   };
 }
 
-function StatTile({ label, value, suffix }) {
+// Count-up micro-animation for stat values; keeps the decimal precision of
+// the incoming value and renders it directly under reduced motion.
+function useCountUp(target, duration = 900) {
+  const num = Number(target);
+  const decimals = (String(target).split(".")[1] || "").length;
+  const [val, setVal] = useState(() =>
+    prefersReducedMotion() ? num : 0
+  );
+
+  useEffect(() => {
+    if (!Number.isFinite(num)) return undefined;
+    if (prefersReducedMotion()) {
+      setVal(num);
+      return undefined;
+    }
+    let raf;
+    const t0 = performance.now();
+    const tick = (t) => {
+      const p = Math.min(1, (t - t0) / duration);
+      setVal(num * (1 - Math.pow(1 - p, 3))); // ease-out cubic
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [num, duration]);
+
+  if (!Number.isFinite(num)) return target;
+  return val.toFixed(decimals);
+}
+
+function StatTile({ label, value, suffix, delay = 0 }) {
+  const shown = useCountUp(value);
   return (
-    <div className="stat-tile">
+    <div className="stat-tile rise" style={{ animationDelay: `${delay}ms` }}>
       <span className="stat-value">
-        {value}
+        {shown}
         {suffix ? <small>{suffix}</small> : null}
       </span>
       <span className="stat-label">{label}</span>
@@ -94,6 +126,9 @@ export default function Dashboard({ player }) {
     matches: null,
   });
   const [reloadKey, setReloadKey] = useState(0);
+  // Dashboard remounts per player (keyed wrapper in App), so this fires
+  // player_search once per searched player — retries don't re-count.
+  const searchTracked = useRef(false);
 
   useEffect(() => {
     if (!player) return;
@@ -104,6 +139,13 @@ export default function Dashboard({ player }) {
       getMatches(player.name, player.tag, player.region, 10),
     ]).then(([accountRes, matchesRes]) => {
       if (!alive) return;
+      if (!searchTracked.current) {
+        searchTracked.current = true;
+        track("player_search", {
+          region: player.region,
+          found: accountRes.status === "fulfilled",
+        });
+      }
       const account =
         accountRes.status === "fulfilled" ? accountRes.value : null;
       const matches =
@@ -199,9 +241,18 @@ export default function Dashboard({ player }) {
           {stats ? (
             <div className="stat-grid">
               <StatTile label="Win rate" value={stats.winRate} suffix="%" />
-              <StatTile label="Avg KDA" value={stats.kda} />
-              <StatTile label="Avg headshot" value={stats.hs} suffix="%" />
-              <StatTile label="Matches analyzed" value={stats.count} />
+              <StatTile label="Avg KDA" value={stats.kda} delay={70} />
+              <StatTile
+                label="Avg headshot"
+                value={stats.hs}
+                suffix="%"
+                delay={140}
+              />
+              <StatTile
+                label="Matches analyzed"
+                value={stats.count}
+                delay={210}
+              />
             </div>
           ) : null}
 

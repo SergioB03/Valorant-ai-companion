@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from app.errors import upstream_to_http
+from app.limiter import limiter
 from app.services import rag_service
 
 router = APIRouter(prefix="/meta", tags=["meta"])
@@ -15,7 +16,8 @@ class AskRequest(BaseModel):
     question: str
 
 @router.post("/ask")
-async def ask(body: AskRequest):
+@limiter.limit("15/minute")
+async def ask(request: Request, body: AskRequest):
     if not rag_service.is_available():
         raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL)
     question = body.question.strip()

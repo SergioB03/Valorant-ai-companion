@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { tiltCheck, coachChat, getMentalProfile } from "../api.js";
 import {
   LEVEL_COLORS,
-  SEVERITY_COLORS,
   shortDateTime,
+  splitParagraphs,
   stripMarkdown,
 } from "../utils.js";
 import { Spinner, ErrorBanner, EmptyState } from "./common.jsx";
+import { Insignia, AgentBadge } from "./Insignia.jsx";
 import TiltMeter from "./TiltMeter.jsx";
 import Sparkline from "./Sparkline.jsx";
+import { track } from "../analytics.js";
 
 function TrendBadge({ trend }) {
   const map = {
@@ -25,28 +27,69 @@ function TrendBadge({ trend }) {
   );
 }
 
+// Map signal severity onto the shared sentiment insignia contract:
+// critical/high burn red (Omen, pulsing), medium reads as a heads-up
+// (Brimstone amber), low is a neutral pattern note (Cypher).
+function severityKind(severity) {
+  if (severity === "critical" || severity === "high") return "weakness";
+  if (severity === "medium") return "tip";
+  return "neutral";
+}
+
 function SignalList({ signals }) {
   if (!signals || signals.length === 0) {
-    return <p className="muted">No tilt signals detected. Clean mental.</p>;
+    return (
+      <div className="insignia-item kind-strength rise clean-bill">
+        <Insignia kind="strength" label="Clean bill" />
+        <p>No tilt signals detected. Mental is solid — keep queueing.</p>
+      </div>
+    );
   }
   return (
-    <ul className="signal-list">
-      {signals.map((s, i) => (
-        <li key={i} className="signal-row">
-          <span
-            className="severity-chip"
-            style={{
-              color: SEVERITY_COLORS[s.severity] || "#9aa7b3",
-              borderColor: SEVERITY_COLORS[s.severity] || "#9aa7b3",
-            }}
+    <ul className="insignia-list">
+      {signals.map((s, i) => {
+        const kind = severityKind(s.severity);
+        const hot = kind === "weakness";
+        return (
+          <li
+            key={i}
+            className={`insignia-item kind-${kind} rise${hot ? " pulse" : ""}`}
+            style={{ animationDelay: `${i * 80}ms` }}
           >
-            {s.severity}
-          </span>
-          <span className="signal-type">{(s.type || "").replace(/_/g, " ")}</span>
-          <span className="signal-detail">{s.detail}</span>
-        </li>
-      ))}
+            <Insignia kind={kind} label={s.severity} />
+            <div className="signal-body">
+              <span className="signal-type">
+                {(s.type || "").replace(/_/g, " ")}
+              </span>
+              <span className="signal-detail">{s.detail}</span>
+            </div>
+          </li>
+        );
+      })}
     </ul>
+  );
+}
+
+// Coach message styled as an in-game team-comms card.
+function CommsCard({ text }) {
+  const paras = splitParagraphs(stripMarkdown(text));
+  return (
+    <div className="comms-card rise">
+      <div className="comms-avatar" aria-hidden="true">
+        <AgentBadge kind="mental" size={44} />
+      </div>
+      <div className="comms-body">
+        <div className="comms-head">
+          <span className="comms-name">Team comms — Coach</span>
+          <Insignia kind="mental" label="Reset protocol" />
+        </div>
+        <blockquote className="comms-quote">
+          {paras.map((p, i) => (
+            <p key={i}>{p}</p>
+          ))}
+        </blockquote>
+      </div>
+    </div>
   );
 }
 
@@ -108,12 +151,23 @@ export default function MentalCoachTab({ player }) {
   async function runTiltCheck() {
     if (!player || tilt.loading) return;
     setTilt({ loading: true, error: null, report: null });
+    const t0 = performance.now();
     try {
       const report = await tiltCheck(player.name, player.tag, player.region, 10);
+      track("tilt_check", {
+        tilt_level: report.tilt_level,
+        tilt_score: report.tilt_score,
+        latency_ms: Math.round(performance.now() - t0),
+        ok: true,
+      });
       if (!aliveRef.current) return;
       setTilt({ loading: false, error: null, report });
       loadProfile();
     } catch (err) {
+      track("tilt_check", {
+        latency_ms: Math.round(performance.now() - t0),
+        ok: false,
+      });
       if (!aliveRef.current) return;
       setTilt({ loading: false, error: err.message, report: null });
     }
@@ -127,8 +181,13 @@ export default function MentalCoachTab({ player }) {
     setInput("");
     setMessages((m) => [...m, { role: "user", text }]);
     setSending(true);
+    const t0 = performance.now();
     try {
       const res = await coachChat(player.name, player.tag, player.region, text);
+      track("coach_message_sent", {
+        latency_ms: Math.round(performance.now() - t0),
+        ok: true,
+      });
       if (!aliveRef.current) return;
       setMessages((m) => [
         ...m,
@@ -141,6 +200,10 @@ export default function MentalCoachTab({ player }) {
       ]);
       loadProfile();
     } catch (err) {
+      track("coach_message_sent", {
+        latency_ms: Math.round(performance.now() - t0),
+        ok: false,
+      });
       if (!aliveRef.current) return;
       // Roll back the optimistic user bubble and restore the draft so the
       // user can retry the send.
@@ -187,7 +250,7 @@ export default function MentalCoachTab({ player }) {
           </button>
         </div>
         <p className="panel-sub">
-          Scans the last 10 matches for loss streaks, KDA/headshot drops and
+          Scans your last 10 competitive matches for loss streaks, KDA/headshot drops and
           trigger maps or agents, then asks the coach for a read.
         </p>
 
@@ -246,10 +309,7 @@ export default function MentalCoachTab({ player }) {
             </div>
 
             {report.coach_message ? (
-              <div className="coach-note">
-                <span className="stat-label">Coach says</span>
-                <div className="prose">{stripMarkdown(report.coach_message)}</div>
-              </div>
+              <CommsCard text={report.coach_message} />
             ) : null}
           </div>
         ) : null}

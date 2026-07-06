@@ -6,7 +6,10 @@ load_dotenv()
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import claude, riot, mental, meta
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from app.limiter import limiter
+from app.routes import analytics, claude, riot, mental, meta
 from app.services.rag_service import warm_index_async
 
 @asynccontextmanager
@@ -15,6 +18,9 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title="Valorant AI Companion", version="1.0.0", lifespan=lifespan)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 
@@ -30,6 +36,7 @@ app.include_router(claude.router)
 app.include_router(riot.router)
 app.include_router(mental.router)
 app.include_router(meta.router)
+app.include_router(analytics.router)
 
 @app.get("/")
 def root():

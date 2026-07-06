@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import PlayerSearch from "./components/PlayerSearch.jsx";
+import Backdrop from "./components/Backdrop.jsx";
 import Dashboard from "./components/Dashboard.jsx";
 import AnalysisTab from "./components/AnalysisTab.jsx";
 import MentalCoachTab from "./components/MentalCoachTab.jsx";
 import MetaTab from "./components/MetaTab.jsx";
 import { playerKey } from "./utils.js";
+import { track, trackSessionStart } from "./analytics.js";
 
 const STORAGE_KEY = "vac:last-player";
 
@@ -32,6 +34,20 @@ function loadSavedPlayer() {
 export default function App() {
   const [player, setPlayer] = useState(loadSavedPlayer);
   const [tab, setTab] = useState("dashboard");
+  const mountTracked = useRef(false);
+
+  useEffect(() => {
+    // Ref guard keeps StrictMode's dev double-mount from double-firing.
+    if (mountTracked.current) return;
+    mountTracked.current = true;
+    trackSessionStart();
+    track("page_view", { tab: "dashboard" });
+  }, []);
+
+  function handleTab(next) {
+    if (next !== tab) track("tab_change", { tab: next });
+    setTab(next);
+  }
 
   function handleSearch(next) {
     setPlayer(next);
@@ -44,6 +60,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <Backdrop />
       <div className="top-glow" aria-hidden="true" />
       <header className="topbar">
         <div className="brand">
@@ -84,7 +101,7 @@ export default function App() {
             role="tab"
             aria-selected={tab === t.id}
             className={`tab ${tab === t.id ? "active" : ""}`}
-            onClick={() => setTab(t.id)}
+            onClick={() => handleTab(t.id)}
           >
             {t.label}
           </button>

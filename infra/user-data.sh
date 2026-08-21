@@ -11,10 +11,11 @@ exec > >(tee -a /var/log/vac-bootstrap.log | logger -t vac-bootstrap) 2>&1
 REPO_URL="__REPO_URL__"
 BRANCH="__BRANCH__"
 APP_DIR=/opt/vac
+CURL="curl -fsSL --retry 5 --retry-all-errors --retry-delay 3"
 
 # bootstrap.sh swaps the auto-assigned public IP for an Elastic IP seconds after launch,
 # which can drop connections mid-flight. Wait for the network to settle, and retry the
-# steps below that don't retry on their own.
+# downloads below.
 until curl -fsS --max-time 5 https://github.com >/dev/null 2>&1; do sleep 3; done
 
 # 2 GB swap: t3.small has 2 GB RAM and the image builds appreciate headroom.
@@ -26,12 +27,19 @@ fi
 dnf install -y docker git
 systemctl enable --now docker
 
-# Compose v2 isn't packaged for AL2023 — install the official CLI plugin binary.
-mkdir -p /usr/local/lib/docker/cli-plugins
-curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 \
-  "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" \
-  -o /usr/local/lib/docker/cli-plugins/docker-compose
-chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+# Compose isn't packaged for AL2023, and the AL2023 docker RPM bundles a buildx (0.12.x)
+# too old for current Compose (`compose build` needs buildx >= 0.17). Install current
+# buildx + compose under /usr/local/lib, which the docker CLI searches before /usr/libexec.
+PLUGINS=/usr/local/lib/docker/cli-plugins
+mkdir -p "$PLUGINS"
+case "$(uname -m)" in x86_64) GOARCH=amd64 ;; aarch64) GOARCH=arm64 ;; *) GOARCH=$(uname -m) ;; esac
+BUILDX_TAG=$(curl -fsSI --retry 5 --retry-all-errors --retry-delay 3 https://github.com/docker/buildx/releases/latest \
+  | tr -d '\r' | awk -F'/tag/' 'tolower($1) ~ /^location:/ {print $2}')
+[ -n "$BUILDX_TAG" ] || { echo "could not resolve the latest buildx release"; exit 1; }
+$CURL "https://github.com/docker/buildx/releases/download/${BUILDX_TAG}/buildx-${BUILDX_TAG}.linux-${GOARCH}" -o "$PLUGINS/docker-buildx"
+$CURL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" -o "$PLUGINS/docker-compose"
+chmod +x "$PLUGINS/docker-buildx" "$PLUGINS/docker-compose"
+docker buildx version
 docker compose version
 
 if [ ! -d "$APP_DIR/.git" ]; then

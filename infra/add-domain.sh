@@ -58,7 +58,8 @@ fi
 RECORDS=""
 for _ in $(seq 1 12); do
   RECORDS=$(aws acm describe-certificate --region us-east-1 --certificate-arn "$CERT_ARN" \
-              --query 'Certificate.DomainValidationOptions[].ResourceRecord.[Name,Value]' --output text | sort -u)
+              --query 'Certificate.DomainValidationOptions[].ResourceRecord.[Name,Value]' --output text | tr -d '\r' | sort -u)
+  # (tr: the Windows AWS CLI writes CRLF, and a stray \r inside the JSON below would be rejected)
   [[ -n "$RECORDS" && "$RECORDS" != *None* ]] && break
   sleep 5
 done
@@ -67,8 +68,18 @@ while read -r name value; do
   aws route53 change-resource-record-sets --hosted-zone-id "$ZONE_ID" --change-batch \
     "{\"Changes\":[{\"Action\":\"UPSERT\",\"ResourceRecordSet\":{\"Name\":\"$name\",\"Type\":\"CNAME\",\"TTL\":300,\"ResourceRecords\":[{\"Value\":\"$value\"}]}}]}" >/dev/null </dev/null
 done <<< "$RECORDS"
-note "validation records in place; waiting for issuance (usually a few minutes)"
-aws acm wait certificate-validated --region us-east-1 --certificate-arn "$CERT_ARN"
+note "validation records in place; waiting for issuance (usually 5-15 min, can be ~40)"
+# Not `aws acm wait certificate-validated`: that waiter gives up after 5 minutes.
+STATUS=PENDING_VALIDATION
+for _ in $(seq 1 80); do
+  STATUS=$(aws acm describe-certificate --region us-east-1 --certificate-arn "$CERT_ARN" --query Certificate.Status --output text)
+  case "$STATUS" in
+    ISSUED) break ;;
+    FAILED|VALIDATION_TIMED_OUT|REVOKED|INACTIVE|EXPIRED) die "certificate ended up $STATUS — check ACM (us-east-1) in the console" ;;
+  esac
+  sleep 30
+done
+[ "$STATUS" = ISSUED ] || die "certificate still $STATUS after 40 min — DNS may not have propagated yet; re-run later"
 note "issued"
 
 # ----------------------------------------------------------------------------- cloudfront

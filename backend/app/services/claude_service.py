@@ -8,7 +8,14 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-4-8")
 
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+# Bounded so a slow/hung call fails cleanly inside the proxy's 60 s origin timeout (see
+# DEPLOYMENT.md) instead of surfacing as a gateway error — and is never silently retried
+# (and billed) a second time. Transient 429/529s surface to the user, who can retry.
+client = anthropic.Anthropic(
+    api_key=os.getenv("ANTHROPIC_API_KEY"),
+    timeout=float(os.getenv("CLAUDE_TIMEOUT_SECONDS", "50")),
+    max_retries=0,
+)
 
 def ask_claude(prompt: str, system: str | None = None, max_tokens: int = 4000) -> str:
     kwargs = {}

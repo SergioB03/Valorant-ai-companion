@@ -182,7 +182,7 @@ Interactive docs live at `/docs` when the backend is running (`/api/docs` on the
 | `GET` | `/mental/profile/{name}/{tag}` | Your mental profile — tilt snapshot history, coach sessions, and trend |
 | `POST` | `/meta/ask` | Meta Q&A via RAG — body `{"question": "..."}`; answers with cited sources |
 | `GET` | `/meta/status` | RAG index status (ready, documents, chunks) |
-| `POST` | `/meta/reindex` | Rebuild the knowledge index from `backend/data/knowledge/` |
+| `POST` | `/meta/reindex` | Rebuild the knowledge index from `backend/data/knowledge/` — admin-only (`X-Admin-Token` header, same gate as `/analytics/summary`; disabled when `ADMIN_TOKEN` is unset), 10 calls/hour |
 | `POST` | `/analytics/events` | Ingests batches of anonymous usage events from the frontend (1–25 events per batch, no auth, rate-limited) — returns `204 No Content` |
 | `GET` | `/analytics/summary` | Admin-only usage aggregates — totals, 14-day daily counts, per-event counts, funnel, latency percentiles, error counts. Requires an `X-Admin-Token` header matching the `ADMIN_TOKEN` env var; returns 403 if `ADMIN_TOKEN` is unset |
 

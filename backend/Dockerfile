@@ -31,4 +31,6 @@ RUN ANTHROPIC_API_KEY=build-placeholder \
     python -c "from app.services.rag_service import ensure_index; print('rag index:', ensure_index())"
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# ROOT_PATH (e.g. /api) is the prefix the reverse proxy strips; telling uvicorn keeps it
+# in redirects and /docs links. Empty for local runs.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --root-path \"${ROOT_PATH:-}\""]

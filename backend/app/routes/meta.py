@@ -1,4 +1,7 @@
-from fastapi import APIRouter, HTTPException, Request
+import os
+import secrets
+
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from app.errors import upstream_to_http
@@ -42,7 +45,15 @@ async def get_status():
     return {"available": rag_service.is_available(), **result}
 
 @router.post("/reindex")
-async def reindex():
+@limiter.limit("10/hour")   # counts rejected attempts too — keeps a bad token from locking you out
+async def reindex(request: Request, x_admin_token: str | None = Header(default=None)):
+    # Admin-only: a reindex re-embeds the whole corpus on the server and blocks /meta/ask
+    # while it runs. Same gate as GET /analytics/summary — unset ADMIN_TOKEN disables it.
+    admin_token = os.getenv("ADMIN_TOKEN", "")
+    if not admin_token:
+        raise HTTPException(status_code=403, detail="reindex disabled")
+    if not x_admin_token or not secrets.compare_digest(x_admin_token, admin_token):
+        raise HTTPException(status_code=403, detail="invalid admin token")
     if not rag_service.is_available():
         raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL)
     try:

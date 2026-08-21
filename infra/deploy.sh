@@ -44,6 +44,9 @@ for i in $(seq 1 45); do
   fi
   sleep 2
 done
-echo "API did not come up in 90s; recent logs:"
-docker compose logs --tail=60 api
+echo "API did not come up in 90s. Container state:"
+docker compose ps -a
+# Recent logs minus request lines: those carry player names, and this output can end up
+# in the public GitHub Actions log.
+docker compose logs --no-color --tail=60 api 2>&1 | grep -vE '"(GET|POST) /(riot|mental|claude)/' || true
 exit 1

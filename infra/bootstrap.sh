@@ -76,15 +76,23 @@ ROLE=$APP-ec2-role
 if ! aws iam get-role --role-name "$ROLE" >/dev/null 2>&1; then
   aws iam create-role --role-name "$ROLE" --assume-role-policy-document \
     '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}' >/dev/null
-  aws iam attach-role-policy --role-name "$ROLE" --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
   note "created $ROLE"
 else
   note "reusing $ROLE"
 fi
+# SSM agent / Run Command / Session Manager permissions. The "default" managed policy
+# deliberately lacks ssm:GetParameter*, so the box can read only the /vac/* parameters
+# granted below (AmazonSSMManagedInstanceCore would allow reading every parameter).
+aws iam attach-role-policy --role-name "$ROLE" --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedEC2InstanceDefaultPolicy
+aws iam detach-role-policy --role-name "$ROLE" --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore 2>/dev/null || true
+# GetParametersByPath is authorized against the path itself (parameter/vac); the others
+# against each parameter (parameter/vac/NAME) — so the policy needs both ARNs.
 aws iam put-role-policy --role-name "$ROLE" --policy-name read-app-parameters --policy-document \
-  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"ssm:GetParametersByPath\",\"ssm:GetParameters\",\"ssm:GetParameter\"],\"Resource\":\"arn:aws:ssm:$REGION:$ACCOUNT:parameter$PARAM_PREFIX/*\"}]}"
+  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"ssm:GetParametersByPath\",\"ssm:GetParameters\",\"ssm:GetParameter\"],\"Resource\":[\"arn:aws:ssm:$REGION:$ACCOUNT:parameter$PARAM_PREFIX\",\"arn:aws:ssm:$REGION:$ACCOUNT:parameter$PARAM_PREFIX/*\"]}]}"
 if ! aws iam get-instance-profile --instance-profile-name "$ROLE" >/dev/null 2>&1; then
   aws iam create-instance-profile --instance-profile-name "$ROLE" >/dev/null
+fi
+if [ "$(aws iam get-instance-profile --instance-profile-name "$ROLE" --query 'InstanceProfile.Roles[0].RoleName' --output text)" != "$ROLE" ]; then
   aws iam add-role-to-instance-profile --instance-profile-name "$ROLE" --role-name "$ROLE"
   note "waiting for IAM to propagate"; sleep 15
 fi
@@ -98,13 +106,18 @@ SG_ID=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=$APP-
 if [ "$SG_ID" = None ]; then
   SG_ID=$(aws ec2 create-security-group --group-name "$APP-web" --description "$APP web: HTTP from CloudFront only" \
             --vpc-id "$VPC_ID" --query GroupId --output text)
-  CF_PL=$(aws ec2 describe-managed-prefix-lists --filters Name=prefix-list-name,Values=com.amazonaws.global.cloudfront.origin-facing \
-            --query 'PrefixLists[0].PrefixListId' --output text)
-  aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --ip-permissions \
-    "[{\"IpProtocol\":\"tcp\",\"FromPort\":80,\"ToPort\":80,\"PrefixListIds\":[{\"PrefixListId\":\"$CF_PL\",\"Description\":\"CloudFront origin-facing\"}]}]" >/dev/null
   note "created $SG_ID"
 else
   note "reusing $SG_ID"
+fi
+CF_PL=$(aws ec2 describe-managed-prefix-lists --filters Name=prefix-list-name,Values=com.amazonaws.global.cloudfront.origin-facing \
+          --query 'PrefixLists[0].PrefixListId' --output text)
+[ "$CF_PL" != None ] || die "CloudFront origin-facing prefix list not found in $REGION"
+if ! aws ec2 describe-security-groups --group-ids "$SG_ID" \
+       --query "SecurityGroups[0].IpPermissions[?FromPort==\`80\`].PrefixListIds[].PrefixListId" --output text | grep -q "$CF_PL"; then
+  aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --ip-permissions \
+    "[{\"IpProtocol\":\"tcp\",\"FromPort\":80,\"ToPort\":80,\"PrefixListIds\":[{\"PrefixListId\":\"$CF_PL\",\"Description\":\"CloudFront origin-facing\"}]}]" >/dev/null
+  note "ingress: tcp/80 from $CF_PL (CloudFront)"
 fi
 
 # ----------------------------------------------------------------------------- instance
@@ -207,6 +220,7 @@ if [ "$DIST_ID" = None ]; then
   "Origins": { "Quantity": 1, "Items": [ {
     "Id": "ec2", "DomainName": "$ORIGIN_DNS",
     "CustomHeaders": { "Quantity": 1, "Items": [ { "HeaderName": "X-Origin-Verify", "HeaderValue": "$ORIGIN_SECRET" } ] },
+    "ConnectionAttempts": 1,
     "CustomOriginConfig": { "HTTPPort": 80, "HTTPSPort": 443, "OriginProtocolPolicy": "http-only",
       "OriginReadTimeout": 60, "OriginKeepaliveTimeout": 5,
       "OriginSslProtocols": { "Quantity": 1, "Items": ["TLSv1.2"] } }

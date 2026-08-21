@@ -22,6 +22,9 @@ for p in json.load(sys.stdin)["Parameters"]:
 [ -s backend/.env.new ] || { echo "No parameters found under $PARAM_PREFIX — run infra/bootstrap.sh first"; exit 1; }
 install -m 600 backend/.env.new backend/.env && rm backend/.env.new
 echo "    $(grep -c = backend/.env) variables written"
+# Compose reads ./.env for ${ORIGIN_SECRET} (the CloudFront origin shared secret for Caddy).
+ORIGIN_SECRET=$(grep '^ORIGIN_SECRET=' backend/.env | cut -d= -f2- || true)
+install -m 600 /dev/null .env && printf 'ORIGIN_SECRET=%s\n' "$ORIGIN_SECRET" > .env
 
 echo "==> Code: origin/$BRANCH"
 git fetch --quiet origin "$BRANCH"
@@ -31,11 +34,12 @@ echo "    $(git rev-parse --short HEAD)  $(git log -1 --pretty=%s)"
 echo "==> Containers: build + (re)start"
 docker compose up -d --build --remove-orphans
 docker image prune -f >/dev/null
+docker builder prune -f --keep-storage 2g >/dev/null   # keep BuildKit cache bounded on the 20 GB disk
 
 echo "==> Health"
 for i in $(seq 1 45); do
-  if curl -fsS http://localhost/api/ >/dev/null 2>&1; then
-    echo "    API up: $(curl -fsS http://localhost/api/meta/status)"
+  if curl -fsS -H "X-Origin-Verify: $ORIGIN_SECRET" http://localhost/api/ >/dev/null 2>&1; then
+    echo "    API up: $(curl -fsS -H "X-Origin-Verify: $ORIGIN_SECRET" http://localhost/api/meta/status)"
     exit 0
   fi
   sleep 2

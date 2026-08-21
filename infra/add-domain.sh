@@ -45,7 +45,7 @@ log "$DOMAIN -> CloudFront $DIST_ID ($CF_DOMAIN), hosted zone $ZONE_ID"
 
 # ----------------------------------------------------------------------------- certificate
 log "ACM certificate for $DOMAIN + www.$DOMAIN (us-east-1, as CloudFront requires)"
-CERT_ARN=$(aws acm list-certificates --region us-east-1 \
+CERT_ARN=$(aws acm list-certificates --region us-east-1 --certificate-statuses ISSUED PENDING_VALIDATION \
              --query "CertificateSummaryList[?DomainName=='$DOMAIN'].CertificateArn | [0]" --output text)
 if [ "$CERT_ARN" = None ]; then
   CERT_ARN=$(aws acm request-certificate --region us-east-1 --domain-name "$DOMAIN" \

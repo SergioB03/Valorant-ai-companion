@@ -62,6 +62,13 @@ if ! aws ssm get-parameter --name "$PARAM_PREFIX/ADMIN_TOKEN" >/dev/null 2>&1; t
   aws ssm put-parameter --name "$PARAM_PREFIX/ADMIN_TOKEN" --value "$ADMIN_TOKEN" --type SecureString >/dev/null
   note "ADMIN_TOKEN (generated; unlocks GET /api/analytics/summary — printed at the end)"
 fi
+# Shared secret CloudFront stamps on every origin request (X-Origin-Verify); Caddy rejects
+# anything without it, so the box is reachable only through *our* distribution.
+if ! aws ssm get-parameter --name "$PARAM_PREFIX/ORIGIN_SECRET" >/dev/null 2>&1; then
+  aws ssm put-parameter --name "$PARAM_PREFIX/ORIGIN_SECRET" --value "$(openssl rand -hex 32)" --type SecureString >/dev/null
+  note "ORIGIN_SECRET (generated)"
+fi
+ORIGIN_SECRET=$(aws ssm get-parameter --name "$PARAM_PREFIX/ORIGIN_SECRET" --with-decryption --query Parameter.Value --output text)
 
 # ----------------------------------------------------------------------------- instance role
 log "IAM instance role"
@@ -109,16 +116,27 @@ if [ "$INSTANCE_ID" = None ]; then
   AMI=$(aws ssm get-parameter --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 \
           --query Parameter.Value --output text)
   USER_DATA=$(sed -e "s|__REPO_URL__|https://github.com/$REPO.git|" -e "s|__BRANCH__|$BRANCH|" infra/user-data.sh)
-  INSTANCE_ID=$(aws ec2 run-instances \
-    --image-id "$AMI" --instance-type "$INSTANCE_TYPE" \
-    --security-group-ids "$SG_ID" --iam-instance-profile "Name=$ROLE" \
-    --user-data "$USER_DATA" \
-    --metadata-options HttpTokens=required,HttpEndpoint=enabled \
-    --block-device-mappings "[{\"DeviceName\":\"/dev/xvda\",\"Ebs\":{\"VolumeSize\":$VOLUME_GB,\"VolumeType\":\"gp3\",\"DeleteOnTermination\":true}}]" \
-    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$APP-web}]" "ResourceType=volume,Tags=[{Key=Name,Value=$APP-web}]" \
-    --query 'Instances[0].InstanceId' --output text)
+  # A freshly created instance profile can take a minute to become visible to EC2.
+  for attempt in 1 2 3 4 5 6 7 8; do
+    if OUT=$(aws ec2 run-instances \
+        --image-id "$AMI" --instance-type "$INSTANCE_TYPE" \
+        --security-group-ids "$SG_ID" --iam-instance-profile "Name=$ROLE" \
+        --user-data "$USER_DATA" \
+        --metadata-options HttpTokens=required,HttpEndpoint=enabled \
+        --block-device-mappings "[{\"DeviceName\":\"/dev/xvda\",\"Ebs\":{\"VolumeSize\":$VOLUME_GB,\"VolumeType\":\"gp3\",\"DeleteOnTermination\":true}}]" \
+        --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$APP-web}]" "ResourceType=volume,Tags=[{Key=Name,Value=$APP-web}]" \
+        --query 'Instances[0].InstanceId' --output text 2>&1); then
+      INSTANCE_ID=$OUT; break
+    fi
+    case "$OUT" in
+      *"Invalid IAM Instance Profile"*) note "instance profile not visible to EC2 yet — retrying ($attempt/8)"; sleep 10 ;;
+      *) printf '%s\n' "$OUT" >&2; die "run-instances failed" ;;
+    esac
+  done
+  [ "$INSTANCE_ID" != None ] || die "EC2 kept rejecting the instance profile — wait a minute and re-run"
   note "launched $INSTANCE_ID — first boot installs Docker and builds the app (~5-8 min)"
   aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
+  RESYNC=0
 else
   note "reusing $INSTANCE_ID"
   STATE=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --query 'Reservations[0].Instances[0].State.Name' --output text)
@@ -126,6 +144,7 @@ else
     aws ec2 start-instances --instance-ids "$INSTANCE_ID" >/dev/null
     aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
   fi
+  RESYNC=1   # re-run the first-boot script below so a failed/partial first boot gets repaired
 fi
 
 # ----------------------------------------------------------------------------- elastic ip
@@ -145,6 +164,20 @@ for _ in 1 2 3 4 5 6; do
 done
 [[ "$ORIGIN_DNS" == ec2-* ]] || die "Instance has no public DNS name (VPC needs DNS hostnames enabled)"
 note "$PUBLIC_IP  ($ORIGIN_DNS)"
+
+if [ "$RESYNC" = 1 ]; then
+  log "Re-syncing the existing instance over SSM (re-runs infra/user-data.sh; idempotent)"
+  RESYNC_CMD="curl -fsSL https://raw.githubusercontent.com/$REPO/$BRANCH/infra/user-data.sh | sed -e 's|__REPO_URL__|https://github.com/$REPO.git|' -e 's|__BRANCH__|$BRANCH|' | bash"
+  for attempt in 1 2 3 4 5 6; do
+    if CMD_ID=$(aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
+          --comment "$APP bootstrap re-sync" --timeout-seconds 600 \
+          --parameters "{\"commands\":[\"$RESYNC_CMD\"],\"executionTimeout\":[\"1800\"]}" \
+          --query Command.CommandId --output text 2>/dev/null); then
+      note "SSM command $CMD_ID  (follow along on the box: sudo tail -f /var/log/vac-bootstrap.log)"; break
+    fi
+    note "SSM agent not registered yet — retrying ($attempt/6)"; sleep 15
+  done
+fi
 
 # ----------------------------------------------------------------------------- cloudfront
 log "CloudFront distribution"
@@ -173,6 +206,7 @@ if [ "$DIST_ID" = None ]; then
   "PriceClass": "PriceClass_100",
   "Origins": { "Quantity": 1, "Items": [ {
     "Id": "ec2", "DomainName": "$ORIGIN_DNS",
+    "CustomHeaders": { "Quantity": 1, "Items": [ { "HeaderName": "X-Origin-Verify", "HeaderValue": "$ORIGIN_SECRET" } ] },
     "CustomOriginConfig": { "HTTPPort": 80, "HTTPSPort": 443, "OriginProtocolPolicy": "http-only",
       "OriginReadTimeout": 60, "OriginKeepaliveTimeout": 5,
       "OriginSslProtocols": { "Quantity": 1, "Items": ["TLSv1.2"] } }

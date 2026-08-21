@@ -1,0 +1,75 @@
+# Push-to-deploy. infra/bootstrap.sh creates the AWS side and sets the repo variables this
+# workflow reads (AWS_REGION, AWS_ROLE_ARN, EC2_INSTANCE_ID, CLOUDFRONT_DISTRIBUTION_ID,
+# APP_URL). Until those exist the job is skipped, so forks and fresh clones stay green.
+#
+# Auth is GitHub OIDC -> an IAM role that may only run commands on our one instance and
+# invalidate our one distribution — no AWS keys are stored in GitHub.
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    if: vars.AWS_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    env:
+      INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Run infra/deploy.sh on the instance (SSM)
+        run: |
+          set -euo pipefail
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "deploy ${GITHUB_SHA::7}" \
+            --timeout-seconds 600 \
+            --parameters 'commands=["/opt/vac/infra/deploy.sh"],executionTimeout=["900"]' \
+            --query Command.CommandId --output text)
+          echo "SSM command $CMD_ID"
+          STATUS=Pending
+          for i in $(seq 1 100); do
+            STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+                       --query Status --output text 2>/dev/null || echo Pending)
+            case "$STATUS" in
+              Success|Failed|Cancelled|TimedOut) break ;;
+            esac
+            sleep 10
+          done
+          echo "::group::deploy output ($STATUS)"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query '[StandardOutputContent, StandardErrorContent]' --output text
+          echo "::endgroup::"
+          [ "$STATUS" = Success ]
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" --paths "/*" \
+            --query Invalidation.Id --output text
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 12); do
+            if curl -fsS "${{ vars.APP_URL }}/api/" && curl -fsS "${{ vars.APP_URL }}/api/meta/status"; then
+              echo; echo "OK: ${{ vars.APP_URL }}"; exit 0
+            fi
+            sleep 5
+          done
+          echo "Smoke test failed for ${{ vars.APP_URL }}"; exit 1

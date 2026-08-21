@@ -1,95 +1,113 @@
-# Deployment Guide
+# Deployment Guide (AWS)
 
-How to get Valorant AI Companion live: **backend on Render** (FastAPI) and **frontend on Vercel** (React/Vite), then wire the two together with CORS.
+Valorant AI Companion runs on AWS as one Docker Compose stack behind CloudFront:
 
 ```
-Browser ──> Vercel (frontend/)  ──HTTP──>  Render (backend/, FastAPI)
-                                              ├── Anthropic Claude API
-                                              └── HenrikDev API (match data)
+Browser ──HTTPS──> CloudFront ──HTTP──> EC2 (t3.small, Amazon Linux 2023)
+                   (TLS, CDN,            └─ docker compose
+                    *.cloudfront.net         ├─ web: Caddy — serves the React build,
+                    or your domain)          │        proxies /api/* -> api:8000
+                                             └─ api: FastAPI + ChromaDB
+                                                  ├── Anthropic Claude API
+                                                  ├── HenrikDev API (match data)
+                                                  └── SQLite on a persistent volume
 ```
 
-## Prerequisites
+Why this shape:
 
-- The repo pushed to GitHub
-- An [Anthropic API key](https://console.anthropic.com)
-- A HenrikDev API key (used as `RIOT_API_KEY` while the production Riot key is pending)
-- Free accounts on [Render](https://render.com) and [Vercel](https://vercel.com)
+- **One box, one stack.** The same `docker-compose.yml` runs locally and in production, so "works on my machine" *is* the deployment.
+- **Persistent state.** Mental profiles and analytics live in SQLite on the instance's EBS volume and survive deploys — the thing the old free-tier Render setup couldn't do.
+- **Same-origin API.** The frontend calls `/api/...` on its own origin, so there are no CORS or mixed-content surprises; Caddy strips the prefix before handing requests to FastAPI.
+- **Free HTTPS from day one.** CloudFront fronts the box with a `*.cloudfront.net` URL; a custom domain is one script away (below).
+- **Push-to-deploy, no stored keys.** GitHub Actions assumes an IAM role through OIDC and runs `infra/deploy.sh` on the box over Systems Manager. No SSH port is open; shell access is `aws ssm start-session`.
+- **Secrets in Parameter Store.** The box pulls `/vac/*` (SecureString) into `backend/.env` on every deploy; nothing sensitive is in the repo, the image, or GitHub.
 
----
+Rough cost in `us-east-1`: t3.small ≈ $15/mo + 20 GB gp3 ≈ $1.60 + public IPv4 ≈ $3.65 ≈ **$20/mo**. CloudFront, Parameter Store, SSM and the ACM certificate are free at this scale. New AWS accounts get free-tier credits that cover this for months.
 
-## 1. Backend → Render (Blueprint)
-
-The repo root contains `render.yaml`, so Render can set everything up from the file:
-
-1. In the Render dashboard: **New → Blueprint** and connect this GitHub repo.
-2. Render reads `render.yaml` and proposes one web service (`valorant-ai-companion-api`, root dir `backend`, free plan).
-3. Fill in the environment variables it prompts for:
-
-   | Variable | Value |
-   |---|---|
-   | `ANTHROPIC_API_KEY` | your Anthropic key |
-   | `RIOT_API_KEY` | your HenrikDev key |
-   | `CORS_ORIGINS` | `http://localhost:5173` for now — you'll replace this with the Vercel URL in step 3 |
-   | `ADMIN_TOKEN` | optional — a long random secret that unlocks `GET /analytics/summary` (sent as the `X-Admin-Token` header). Leave it empty to keep the summary endpoint disabled (403). |
-
-   `CLAUDE_MODEL` is preset to `claude-opus-4-8` by the blueprint.
-4. Click **Apply** and wait for the build.
-5. Sanity check: open `https://<your-service>.onrender.com/` — you should see the "API is running" message — and `https://<your-service>.onrender.com/docs` for the interactive Swagger UI.
-
-> The blueprint declares `runtime: python` and pins the interpreter with a `PYTHON_VERSION` env var set to `3.12.5`, so the build won't pick a Python version that fights with `requirements.txt`.
-
-### Free tier gotchas (read this)
-
-- **The disk is ephemeral.** Everything under `backend/data/` — the SQLite database (`companion.sqlite3`, which holds both mental profiles and analytics events) and the ChromaDB vector index (`chroma_db/`) — is wiped on **every deploy AND every cold start** after an idle spin-down (see below). SQLite history (including analytics) and the Chroma index rebuild from scratch each time, and ChromaDB re-downloads its embedding model (~80 MB) too. Totally fine for a demo; for real persistence you'd attach a Render persistent disk or move to a hosted database.
-- **The RAG index warms in the background at startup.** The app kicks off the index build (embedding-model download + embedding the knowledge corpus) when the server boots, so the first `POST /meta/ask` isn't doing the full build in-request. Still, expect the first few minutes after a deploy or cold start to be slow while that warm-up finishes.
-- **Free services spin down when idle.** After ~15 minutes without traffic, the next request pays a cold start of up to a minute — and, per the first point, the instance comes back with a fresh disk.
-
-### Known limitations
-
-- `POST /claude/ask` is an **unauthenticated** endpoint that costs Anthropic credits on every call. It's rate-limited to 5 requests/minute per client IP (the other Claude-backed endpoints have their own per-IP limits too), which caps the burn rate but doesn't eliminate it — still, don't publish the backend URL widely, or remove that route before deploying publicly.
+> AWS App Runner would have been the managed-container option, but it stopped accepting new customers on April 30, 2026.
 
 ---
 
-## 2. Frontend → Vercel
+## Prerequisites (once)
 
-1. In Vercel: **Add New → Project** and import the same GitHub repo.
-2. Set **Root Directory** to `frontend`. Vercel auto-detects Vite (`frontend/vercel.json` handles the SPA rewrites).
-3. Add one environment variable:
+- **AWS CLI v2** and **GitHub CLI** on your PATH; a bash shell (Git Bash on Windows).
+- An AWS session: `aws login` (opens the browser; sessions last up to 12 h — re-run it when the CLI says the session expired).
+- `gh auth login` done for the repo owner.
+- `backend/.env` filled in with `ANTHROPIC_API_KEY` and `RIOT_API_KEY` (optionally `DISCORD_WEBHOOK_URL`). These are what get copied into Parameter Store.
+- Optional: the [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) if you want a shell on the box.
 
-   | Variable | Value |
-   |---|---|
-   | `VITE_API_URL` | `https://<your-service>.onrender.com` (no trailing slash) |
+## 1. First deploy — `infra/bootstrap.sh`
 
-4. **Deploy.** You'll get a URL like `https://valorant-ai-companion.vercel.app`.
+```bash
+aws login            # if you don't have an active session
+infra/bootstrap.sh
+```
 
-> `VITE_API_URL` is baked in at build time. If you ever change it, trigger a redeploy on Vercel.
+It's idempotent (safe to re-run) and creates, in order: Parameter Store secrets → EC2 instance role → security group (port 80 from CloudFront's IP ranges only) → the instance, whose first boot installs Docker, clones this repo into `/opt/vac` and runs `infra/deploy.sh` → an Elastic IP → the CloudFront distribution → the GitHub OIDC deploy role → the repo variables the workflow needs. Then it polls until `https://<id>.cloudfront.net/api/` answers (the first build on the box plus CloudFront's rollout take 10–15 minutes) and prints the URL, the instance id, and — on the very first run — a generated `ADMIN_TOKEN` for `GET /api/analytics/summary`. **Save that token; it isn't shown again** (it's retrievable from Parameter Store as `/vac/ADMIN_TOKEN`).
 
----
+Knobs (env vars): `INSTANCE_TYPE` (default `t3.small`, ≈$15/mo; the API idles around 160 MB, so `t3.micro` at ≈$7.60/mo also works — the 2 GB swap added at first boot covers the on-box image builds, which are the memory-hungry part), `VOLUME_GB`, `AWS_REGION`, `REPO`, `BRANCH`.
 
-## 3. Connect the two (CORS)
+## 2. Every deploy after that — `git push`
 
-1. Back in Render: your service → **Environment** → set `CORS_ORIGINS` to your Vercel URL, e.g.
+[.github/workflows/deploy.yml](.github/workflows/deploy.yml) runs on every push to `main` (or manually: `gh workflow run deploy.yml`):
 
+1. assume the `vac-github-deploy` role via OIDC;
+2. `aws ssm send-command` → the box runs [infra/deploy.sh](infra/deploy.sh): refresh `backend/.env` from Parameter Store, `git reset --hard origin/main`, `docker compose up -d --build`, wait for `/api/`;
+3. invalidate the CloudFront cache;
+4. smoke-test `/api/` and `/api/meta/status` through CloudFront.
+
+Expect 3–5 minutes; the backend image rebuild is most of it. There's a few seconds of downtime while the `api` container is replaced.
+
+### Changing a secret
+
+```bash
+aws ssm put-parameter --name /vac/RIOT_API_KEY --type SecureString --overwrite --value "HDEV-..."
+gh workflow run deploy.yml      # or push anything
+```
+
+## 3. Custom domain — `infra/add-domain.sh`
+
+1. Register the domain in **Route 53 → Registered domains → Register domain** (cheapest TLDs there are around $3–5/yr — `.click`, `.link`; `.com` ≈ $15/yr). Registration creates the hosted zone automatically.
+2. ```bash
+   infra/add-domain.sh yourdomain.tld
    ```
-   https://valorant-ai-companion.vercel.app
-   ```
+   Requests a free ACM certificate (DNS-validated, in `us-east-1` as CloudFront requires), adds the domain + `www` to the distribution, creates the alias records, updates the backend's `CORS_ORIGINS`, switches the workflow's `APP_URL`, and triggers a redeploy. Live after the CloudFront update (~5 min) and DNS propagation.
 
-   Multiple origins are comma-separated. No trailing slashes.
-2. Save — Render redeploys automatically.
+The `*.cloudfront.net` URL keeps working alongside the domain.
+
+## 4. Operating it
+
+| Need | Command |
+|---|---|
+| Shell on the box | `aws ssm start-session --target <instance-id>` |
+| App logs | on the box: `cd /opt/vac && sudo docker compose logs -f api` |
+| First-boot log | on the box: `sudo cat /var/log/vac-bootstrap.log` |
+| Redeploy manually | on the box: `sudo /opt/vac/infra/deploy.sh` — or `gh workflow run deploy.yml` |
+| RAG index status | `curl https://<url>/api/meta/status` |
+| Analytics summary | `curl -H "X-Admin-Token: <token>" https://<url>/api/analytics/summary` |
+| Back up SQLite | on the box: `sudo docker compose cp api:/app/state/companion.sqlite3 ./backup.sqlite3` |
+| Stop paying | `aws ec2 stop-instances --instance-ids <id>` (EBS + Elastic IP still bill a few $/mo); to remove everything, delete in reverse: CloudFront distribution, instance, Elastic IP, security group, IAM roles, `/vac/*` parameters |
+
+### How requests are rate-limited behind the proxy
+
+CloudFront sets `CloudFront-Viewer-Address` (the real client IP) on every request to the origin — it discards any copy a client sends — and the distribution's origin request policy forwards it. `backend/app/limiter.py` keys the per-IP limits on that header, falling back to the socket address locally. The security group only admits CloudFront's published IP ranges, so the origin can't be hit directly.
+
+### Things baked into the backend image
+
+`backend/Dockerfile` downloads ChromaDB's ONNX embedding model and builds the knowledge index at **build time**, so a new container is ready for `/api/meta/ask` instantly and the index always matches the knowledge files in that commit. Editing `backend/data/knowledge/*.md` and pushing is all it takes to update the meta Q&A.
+
+## Running the production stack locally
+
+```bash
+WEB_PORT=8080 docker compose up --build
+# http://localhost:8080        frontend
+# http://localhost:8080/api/   backend (docs at /api/docs)
+```
+
+Uses your `backend/.env`. State lives in the `state` Docker volume (`docker compose down -v` wipes it).
 
 ---
 
-## 4. Verify
+## Legacy: Render + Vercel
 
-- Open the Vercel URL, search for a player (`name` + `#tag`), and confirm the dashboard fills in.
-- Run a tilt check and ask the Mental Coach something.
-- Ask a meta question — the first one may still be slow if the background index warm-up hasn't finished.
-- If the browser console shows CORS errors, the `CORS_ORIGINS` value doesn't exactly match the frontend origin (check for `https://` and a missing/extra trailing slash).
-- `GET /meta/status` on the backend tells you whether the RAG index is ready; a `503` from `/meta/ask` means ChromaDB isn't available on the instance.
-- If you set `ADMIN_TOKEN`, check the analytics pipeline:
-
-  ```bash
-  curl -H "X-Admin-Token: <your-token>" https://<your-service>.onrender.com/analytics/summary
-  ```
-
-  You should get a JSON summary (totals, daily counts, funnel, latencies). Without the header — or with `ADMIN_TOKEN` unset on the service — it returns 403. Remember the free-tier caveat above: analytics live in the ephemeral SQLite file, so counts reset on every deploy/cold start.
+`render.yaml` and `frontend/vercel.json` are kept for anyone who wants the free-tier path (Render web service + Vercel static site, joined by `CORS_ORIGINS`). Set `VITE_API_URL` on Vercel to the Render URL and `CORS_ORIGINS` on Render to the Vercel URL; note Render's free disk is ephemeral, so SQLite resets on every deploy or cold start. The git history before the AWS migration has the full walkthrough.

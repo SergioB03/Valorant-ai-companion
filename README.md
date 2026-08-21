@@ -39,7 +39,7 @@ Valorant AI Companion is a full-stack AI-powered app with two core pillars:
 | Game Data | HenrikDev API (Riot API migration pending) |
 | Vector DB (RAG) | ChromaDB |
 | Storage (profiles + analytics) | SQLite |
-| Deployment | Vercel (frontend) + Render (backend) |
+| Deployment | AWS — EC2 running Docker Compose behind CloudFront; push-to-deploy via GitHub Actions |
 | Version Control | GitHub |
 
 ## Why I Built This
@@ -62,6 +62,7 @@ This project is my attempt to bridge that gap — combining my passion for the g
 - [x] RAG pipeline — patch notes + meta data
 - [x] User session memory (mental profile over time)
 - [x] Deployment configs for Vercel + Render
+- [x] AWS deployment — EC2 + CloudFront, persistent SQLite, push-to-deploy GitHub Actions
 - [x] Anonymous usage analytics + per-IP rate limiting
 - [ ] Demo video
 - [ ] Migrate to production Riot API key
@@ -164,11 +165,11 @@ The dashboard is now at `http://localhost:5173`. It talks to `http://localhost:8
 
 ### Deployment
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for the full walkthrough: Render Blueprint (`render.yaml`) for the backend, Vercel for the frontend, and wiring `CORS_ORIGINS` between them.
+See [DEPLOYMENT.md](DEPLOYMENT.md). One script (`infra/bootstrap.sh`) stands up the AWS stack, every push to `main` deploys through GitHub Actions, and `infra/add-domain.sh` puts it on a custom domain. `docker compose up --build` runs the exact production stack locally.
 
 ## API Endpoints
 
-Interactive docs live at `/docs` when the backend is running.
+Interactive docs live at `/docs` when the backend is running (`/api/docs` on the deployed site, where the API is served under `/api`).
 
 | Method | Endpoint | What it does |
 |---|---|---|

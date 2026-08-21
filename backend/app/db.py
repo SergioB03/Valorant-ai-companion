@@ -1,10 +1,14 @@
 import json
 import math
+import os
 import sqlite3
 import threading
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parents[1] / "data" / "companion.sqlite3"
+# VAC_STATE_DIR lets a deployment point the mutable state (SQLite) at a persistent
+# volume; unset, it sits next to the knowledge files in backend/data/ as before.
+_STATE_DIR = Path(os.getenv("VAC_STATE_DIR") or Path(__file__).resolve().parents[1] / "data")
+DB_PATH = _STATE_DIR / "companion.sqlite3"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tilt_snapshots (

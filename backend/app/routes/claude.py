@@ -33,4 +33,4 @@ async def analyze(request: Request, game_name: str, tag_line: str, region: str =
     except HTTPException:
         raise
     except Exception as e:
-        raise upstream_to_http(e)
+        raise upstream_to_http(e, "claude.analyze")

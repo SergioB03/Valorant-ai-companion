@@ -23,3 +23,5 @@ services:
         sync: false # set to your Vercel frontend URL after the frontend deploy
       - key: ADMIN_TOKEN
         sync: false # set in the Render dashboard; unset disables /analytics/summary
+      - key: DISCORD_WEBHOOK_URL
+        sync: false # Discord webhook for backend error alerts; unset disables alerting

@@ -12,7 +12,7 @@ async def get_account(game_name: str, tag_line: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise upstream_to_http(e)
+        raise upstream_to_http(e, "riot.account")
 
 @router.get("/matches/{game_name}/{tag_line}")
 async def get_matches(game_name: str, tag_line: str, region: str = "na", size: int = 3):
@@ -22,4 +22,4 @@ async def get_matches(game_name: str, tag_line: str, region: str = "na", size: i
     except HTTPException:
         raise
     except Exception as e:
-        raise upstream_to_http(e)
+        raise upstream_to_http(e, "riot.matches")

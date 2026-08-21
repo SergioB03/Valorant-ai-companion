@@ -29,7 +29,7 @@ async def ask(request: Request, body: AskRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise upstream_to_http(e)
+        raise upstream_to_http(e, "meta.ask")
 
 @router.get("/status")
 async def get_status():
@@ -38,7 +38,7 @@ async def get_status():
     except HTTPException:
         raise
     except Exception as e:
-        raise upstream_to_http(e)
+        raise upstream_to_http(e, "meta.status")
     return {"available": rag_service.is_available(), **result}
 
 @router.post("/reindex")
@@ -50,4 +50,4 @@ async def reindex():
     except HTTPException:
         raise
     except Exception as e:
-        raise upstream_to_http(e)
+        raise upstream_to_http(e, "meta.reindex")

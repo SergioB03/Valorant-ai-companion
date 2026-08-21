@@ -31,9 +31,10 @@ def _tilt_check_sync(raw: dict, game_name: str, tag_line: str, mode: str | None 
     history = get_snapshots(report["riot_id"], limit=5)
     try:
         coach_message = generate_coach_message(report, history)
-    except Exception:
+    except Exception as e:
         # Still persist the tilt report even if the Claude call failed.
         save_snapshot(report["riot_id"], report)
+        notify_error("mental.tilt_check.coach_message", e)
         raise HTTPException(status_code=502, detail="Coach message generation failed; tilt report was saved.")
     report["coach_message"] = coach_message
     save_snapshot(report["riot_id"], report)
@@ -49,7 +50,7 @@ async def tilt_check(request: Request, game_name: str, tag_line: str, region: st
     except HTTPException:
         raise
     except Exception as e:
-        raise upstream_to_http(e)
+        raise upstream_to_http(e, "mental.tilt_check")
 
 
 def _coach_sync(raw: dict | None, request: CoachRequest, riot_id: str) -> dict:
@@ -86,7 +87,7 @@ async def coach(request: Request, body: CoachRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise upstream_to_http(e)
+        raise upstream_to_http(e, "mental.coach")
 
 
 @router.get("/profile/{game_name}/{tag_line}")

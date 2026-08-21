@@ -38,35 +38,44 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 HENRIK_API_KEY = os.getenv("RIOT_API_KEY")
 HENRIK_BASE_URL = "https://api.henrikdev.xyz/valorant"
 
-async def get_account_by_riot_id(game_name: str, tag_line: str):
+
+async def _henrik_get(url: str, params: dict | None = None):
+    """GET with one automatic retry on transient failures (network errors / upstream 5xx)."""
     if not HENRIK_API_KEY:
         raise RuntimeError("RIOT_API_KEY is not set")
-    url = f"{HENRIK_BASE_URL}/v1/account/{quote(game_name, safe='')}/{quote(tag_line, safe='')}"
     headers = {"Authorization": HENRIK_API_KEY}
     async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.get(url, headers=headers)
-        response.raise_for_status()
-        return response.json()
+        for attempt in (1, 2):
+            try:
+                response = await client.get(url, headers=headers, params=params)
+                if response.status_code >= 500 and attempt == 1:
+                    continue
+                response.raise_for_status()
+                return response.json()
+            except httpx.TransportError:
+                if attempt == 2:
+                    raise
+
+async def get_account_by_riot_id(game_name: str, tag_line: str):
+    url = f"{HENRIK_BASE_URL}/v1/account/{quote(game_name, safe='')}/{quote(tag_line, safe='')}"
+    return await _henrik_get(url)
 
 async def get_match_history(game_name: str, tag_line: str, region: str = "na", size: int = 3, mode: str | None = None):
-    if not HENRIK_API_KEY:
-        raise RuntimeError("RIOT_API_KEY is not set")
     url = f"{HENRIK_BASE_URL}/v3/matches/{region}/{quote(game_name, safe='')}/{quote(tag_line, safe='')}"
-    headers = {"Authorization": HENRIK_API_KEY}
     params = {"size": size}
     if mode:
         params["mode"] = mode
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.get(url, headers=headers, params=params)
-        response.raise_for_status()
-        return response.json()
+    return await _henrik_get(url, params)
 
 
 def summarize_matches(raw_matches: dict, game_name: str, tag_line: str) -> list:
     summaries = []
-    for match in raw_matches.get("data", []):
-        meta = match.get("metadata", {})
-        players = match.get("players", {}).get("all_players", [])
+    for match in raw_matches.get("data") or []:
+        # Henrik sometimes returns matches it couldn't hydrate: metadata/players/teams are null.
+        if not match:
+            continue
+        meta = match.get("metadata") or {}
+        players = (match.get("players") or {}).get("all_players") or []
 
         me = next(
             (p for p in players
@@ -77,12 +86,12 @@ def summarize_matches(raw_matches: dict, game_name: str, tag_line: str) -> list:
         if not me:
             continue
 
-        stats = me.get("stats", {})
-        shots = stats.get("headshots", 0) + stats.get("bodyshots", 0) + stats.get("legshots", 0)
-        hs_pct = round(stats.get("headshots", 0) / shots * 100, 1) if shots else 0.0
+        stats = me.get("stats") or {}
+        shots = (stats.get("headshots") or 0) + (stats.get("bodyshots") or 0) + (stats.get("legshots") or 0)
+        hs_pct = round((stats.get("headshots") or 0) / shots * 100, 1) if shots else 0.0
 
-        team = me.get("team", "").lower()
-        won = match.get("teams", {}).get(team, {}).get("has_won", False)
+        team = (me.get("team") or "").lower()
+        won = ((match.get("teams") or {}).get(team) or {}).get("has_won", False)
 
         summaries.append({
             "match_id": meta.get("matchid"),

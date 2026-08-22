@@ -61,6 +61,11 @@ async def get_account_by_riot_id(game_name: str, tag_line: str):
     return await _henrik_get(url)
 
 async def get_match_history(game_name: str, tag_line: str, region: str = "na", size: int = 3, mode: str | None = None):
+    # Clamped at the chokepoint rather than per-route: HenrikDev bills each
+    # background Riot request against our key's bucket, so an unclamped ?size=
+    # from any caller could burn the whole budget in one request. Every route
+    # reaches upstream through here.
+    size = max(1, min(int(size), 10))
     url = f"{HENRIK_BASE_URL}/v3/matches/{region}/{quote(game_name, safe='')}/{quote(tag_line, safe='')}"
     params = {"size": size}
     if mode:

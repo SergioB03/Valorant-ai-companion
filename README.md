@@ -175,7 +175,6 @@ Interactive docs live at `/docs` when the backend is running (`/api/docs` on the
 |---|---|---|
 | `GET` | `/riot/account/{name}/{tag}` | Account lookup — level, region, player card |
 | `GET` | `/riot/matches/{name}/{tag}?region=na&size=10` | Recent match summaries, newest first (map, agent, K/D/A, HS%, win/loss) — `size` defaults to 3 |
-| `POST` | `/claude/ask` | Free-form question straight to Claude — body `{"prompt": "..."}` |
 | `GET` | `/claude/analyze/{name}/{tag}?region=na&size=10` | Claude's structured breakdown of your recent matches — `analysis` object with `overview`, `strengths[]`, `weaknesses[]`, `tilt_warning` (string or null), and `tip` — optional `size` (default 10, max 10) |
 | `GET` | `/mental/tilt-check/{name}/{tag}?region=na&size=10` | Tilt report — score 0–100, level, signals, triggers, coach message |
 | `POST` | `/mental/coach` | Chat with the Mental Coach — body `{"game_name", "tag_line", "region", "message", "history"}`; replies with your current tilt context in mind. `history` is your own last few turns, sent by the browser — the server keeps no transcript |
@@ -186,7 +185,7 @@ Interactive docs live at `/docs` when the backend is running (`/api/docs` on the
 | `POST` | `/analytics/events` | Ingests batches of anonymous usage events from the frontend (1–25 events per batch, no auth, rate-limited) — returns `204 No Content` |
 | `GET` | `/analytics/summary` | Admin-only usage aggregates — totals, 14-day daily counts, per-event counts, funnel, latency percentiles, error counts. Requires an `X-Admin-Token` header matching the `ADMIN_TOKEN` env var; returns 403 if `ADMIN_TOKEN` is unset |
 
-> **Rate limiting:** Claude-backed endpoints and analytics ingestion are rate-limited per client IP — `/claude/ask` 5/min, `/claude/analyze` and `/mental/tilt-check` 10/min, `/mental/coach`, `/mental/profile` and `/meta/ask` 15/min, `/analytics/events` 120/min. Exceeding a limit returns `429 Too Many Requests`.
+> **Rate limiting:** Claude-backed endpoints and analytics ingestion are rate-limited per client IP — `/claude/analyze` and `/mental/tilt-check` 10/min, `/mental/coach`, `/mental/profile` and `/meta/ask` 15/min, `/analytics/events` 120/min. Exceeding a limit returns `429 Too Many Requests`.
 
 ### Analytics & Privacy
 

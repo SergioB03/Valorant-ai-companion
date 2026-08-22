@@ -90,7 +90,7 @@ so it is deliberately hard to abuse:
 - 120 requests/minute per IP via slowapi (in-memory, per-process — fine for one Render instance).
 - Inserts are a single `executemany` transaction; a batch is all-or-nothing.
 
-Claude-backed endpoints get tighter per-IP limits (`/claude/ask` 5/min, `/claude/analyze` and
+Claude-backed endpoints get tighter per-IP limits (`/claude/analyze` and
 `/mental/tilt-check` 10/min, `/mental/coach` and `/meta/ask` 15/min) because each request costs
 real money upstream. A determined attacker with many IPs can still exceed these; the next rung of
 defense would be an edge/WAF layer, not application code.

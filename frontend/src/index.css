@@ -1017,7 +1017,9 @@ img {
 
 .meter-fill {
   height: 100%;
-  transition: width 1s cubic-bezier(0.22, 0.9, 0.36, 1);
+  /* Width is driven by GSAP (TiltMeter.jsx) — a CSS transition here would
+     fight the tween, interpolating toward every per-frame value GSAP sets. */
+  width: 0;
 }
 
 .meter-tick {

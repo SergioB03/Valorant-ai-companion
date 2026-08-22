@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { getAccount, getMatches } from "../api.js";
-import { prefersReducedMotion, relativeDate } from "../utils.js";
+import { relativeDate } from "../utils.js";
 import { ErrorBanner, EmptyState, Skeleton } from "./common.jsx";
+import AnimatedNumber from "./AnimatedNumber.jsx";
+import { useGSAP, revealStagger, revealIn } from "../anim.js";
 import { track } from "../analytics.js";
 
 function computeStats(matches) {
@@ -23,42 +25,13 @@ function computeStats(matches) {
   };
 }
 
-// Count-up micro-animation for stat values; keeps the decimal precision of
-// the incoming value and renders it directly under reduced motion.
-function useCountUp(target, duration = 900) {
-  const num = Number(target);
-  const decimals = (String(target).split(".")[1] || "").length;
-  const [val, setVal] = useState(() =>
-    prefersReducedMotion() ? num : 0
-  );
-
-  useEffect(() => {
-    if (!Number.isFinite(num)) return undefined;
-    if (prefersReducedMotion()) {
-      setVal(num);
-      return undefined;
-    }
-    let raf;
-    const t0 = performance.now();
-    const tick = (t) => {
-      const p = Math.min(1, (t - t0) / duration);
-      setVal(num * (1 - Math.pow(1 - p, 3))); // ease-out cubic
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [num, duration]);
-
-  if (!Number.isFinite(num)) return target;
-  return val.toFixed(decimals);
-}
-
-function StatTile({ label, value, suffix, delay = 0 }) {
-  const shown = useCountUp(value);
+function StatTile({ label, value, suffix }) {
+  // Entrance is a GSAP stagger driven by the parent grid; the value counts up
+  // via <AnimatedNumber>. Both no-op under prefers-reduced-motion.
   return (
-    <div className="stat-tile rise" style={{ animationDelay: `${delay}ms` }}>
+    <div className="stat-tile">
       <span className="stat-value">
-        {shown}
+        <AnimatedNumber value={value} />
         {suffix ? <small>{suffix}</small> : null}
       </span>
       <span className="stat-label">{label}</span>
@@ -129,6 +102,19 @@ export default function Dashboard({ player }) {
   // Dashboard remounts per player (keyed wrapper in App), so this fires
   // player_search once per searched player — retries don't re-count.
   const searchTracked = useRef(false);
+  const scope = useRef(null);
+
+  // Entrance choreography: the account card leads, then the stat tiles and
+  // match rows cascade. Re-runs whenever a load finishes (loading -> data).
+  // Declared before the early returns below so hook order stays stable.
+  useGSAP(
+    () => {
+      revealIn(scope.current?.querySelector(".account-card"));
+      revealStagger(scope.current, ".stat-tile", { delay: 0.08 });
+      revealStagger(scope.current, ".match-row", { delay: 0.16, y: 10 });
+    },
+    { scope, dependencies: [state.loading, state.account, state.matches] },
+  );
 
   useEffect(() => {
     if (!player) return;
@@ -198,7 +184,7 @@ export default function Dashboard({ player }) {
   const card = data.card || {};
 
   return (
-    <div className="stack">
+    <div className="stack" ref={scope}>
       {state.error ? (
         <ErrorBanner
           message={state.error}
@@ -241,18 +227,9 @@ export default function Dashboard({ player }) {
           {stats ? (
             <div className="stat-grid">
               <StatTile label="Win rate" value={stats.winRate} suffix="%" />
-              <StatTile label="Avg KDA" value={stats.kda} delay={70} />
-              <StatTile
-                label="Avg headshot"
-                value={stats.hs}
-                suffix="%"
-                delay={140}
-              />
-              <StatTile
-                label="Matches analyzed"
-                value={stats.count}
-                delay={210}
-              />
+              <StatTile label="Avg KDA" value={stats.kda} />
+              <StatTile label="Avg headshot" value={stats.hs} suffix="%" />
+              <StatTile label="Matches analyzed" value={stats.count} />
             </div>
           ) : null}
 

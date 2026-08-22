@@ -7,6 +7,7 @@ import MentalCoachTab from "./components/MentalCoachTab.jsx";
 import MetaTab from "./components/MetaTab.jsx";
 import { playerKey } from "./utils.js";
 import { track, trackSessionStart } from "./analytics.js";
+import { useGSAP, revealIn } from "./anim.js";
 
 const STORAGE_KEY = "vac:last-player";
 
@@ -35,6 +36,20 @@ export default function App() {
   const [player, setPlayer] = useState(loadSavedPlayer);
   const [tab, setTab] = useState("dashboard");
   const mountTracked = useRef(false);
+  const mainRef = useRef(null);
+
+  // Panels stay mounted and are toggled with [hidden], so on a tab change we
+  // animate whichever panel just became visible. Cheap, and it keeps each tab's
+  // internal state alive across switches.
+  useGSAP(
+    () => {
+      const visible = mainRef.current?.querySelector(
+        ":scope > div > div:not([hidden]), :scope > div:not([hidden])",
+      );
+      revealIn(visible, { y: 8, duration: 0.34 });
+    },
+    { scope: mainRef, dependencies: [tab] },
+  );
 
   useEffect(() => {
     // Ref guard keeps StrictMode's dev double-mount from double-firing.
@@ -108,7 +123,7 @@ export default function App() {
         ))}
       </nav>
 
-      <main>
+      <main ref={mainRef}>
         {/* Player-scoped panels remount on player change; MetaTab lives
             outside the keyed wrapper so its Q&A state survives switches. */}
         <div key={playerKey(player)}>

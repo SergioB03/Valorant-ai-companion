@@ -178,15 +178,15 @@ Interactive docs live at `/docs` when the backend is running (`/api/docs` on the
 | `POST` | `/claude/ask` | Free-form question straight to Claude — body `{"prompt": "..."}` |
 | `GET` | `/claude/analyze/{name}/{tag}?region=na&size=10` | Claude's structured breakdown of your recent matches — `analysis` object with `overview`, `strengths[]`, `weaknesses[]`, `tilt_warning` (string or null), and `tip` — optional `size` (default 10, max 10) |
 | `GET` | `/mental/tilt-check/{name}/{tag}?region=na&size=10` | Tilt report — score 0–100, level, signals, triggers, coach message |
-| `POST` | `/mental/coach` | Chat with the Mental Coach — body `{"game_name", "tag_line", "region", "message"}`; replies with your current tilt context in mind |
-| `GET` | `/mental/profile/{name}/{tag}` | Your mental profile — tilt snapshot history, coach sessions, and trend |
+| `POST` | `/mental/coach` | Chat with the Mental Coach — body `{"game_name", "tag_line", "region", "message", "history"}`; replies with your current tilt context in mind. `history` is your own last few turns, sent by the browser — the server keeps no transcript |
+| `GET` | `/mental/profile/{name}/{tag}` | Mental profile — tilt snapshot history, coach-session counts, and trend. Any Riot ID can be requested by anyone, so this returns aggregates only, never the text of a coach conversation (15/min) |
 | `POST` | `/meta/ask` | Meta Q&A via RAG — body `{"question": "..."}`; answers with cited sources |
 | `GET` | `/meta/status` | RAG index status (ready, documents, chunks) |
 | `POST` | `/meta/reindex` | Rebuild the knowledge index from `backend/data/knowledge/` — admin-only (`X-Admin-Token` header, same gate as `/analytics/summary`; disabled when `ADMIN_TOKEN` is unset), 10 calls/hour |
 | `POST` | `/analytics/events` | Ingests batches of anonymous usage events from the frontend (1–25 events per batch, no auth, rate-limited) — returns `204 No Content` |
 | `GET` | `/analytics/summary` | Admin-only usage aggregates — totals, 14-day daily counts, per-event counts, funnel, latency percentiles, error counts. Requires an `X-Admin-Token` header matching the `ADMIN_TOKEN` env var; returns 403 if `ADMIN_TOKEN` is unset |
 
-> **Rate limiting:** Claude-backed endpoints and analytics ingestion are rate-limited per client IP — `/claude/ask` 5/min, `/claude/analyze` and `/mental/tilt-check` 10/min, `/mental/coach` and `/meta/ask` 15/min, `/analytics/events` 120/min. Exceeding a limit returns `429 Too Many Requests`.
+> **Rate limiting:** Claude-backed endpoints and analytics ingestion are rate-limited per client IP — `/claude/ask` 5/min, `/claude/analyze` and `/mental/tilt-check` 10/min, `/mental/coach`, `/mental/profile` and `/meta/ask` 15/min, `/analytics/events` 120/min. Exceeding a limit returns `429 Too Many Requests`.
 
 ### Analytics & Privacy
 

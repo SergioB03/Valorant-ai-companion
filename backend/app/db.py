@@ -46,6 +46,15 @@ CREATE INDEX IF NOT EXISTS idx_analytics_events_visitor
     ON analytics_events (visitor_id);
 """
 
+# Runs once per process alongside SCHEMA. Earlier versions stored the text of
+# coach conversations against the searched Riot ID, where anyone could read it
+# back via GET /mental/profile. Nothing writes those columns any more, and this
+# clears anything an existing database still holds.
+MIGRATIONS = """
+UPDATE coach_sessions SET user_message = NULL, coach_reply = NULL
+    WHERE user_message IS NOT NULL OR coach_reply IS NOT NULL;
+"""
+
 
 _initialized = False
 _init_lock = threading.Lock()
@@ -62,6 +71,7 @@ def get_conn() -> sqlite3.Connection:
             if not _initialized:
                 conn.execute("PRAGMA journal_mode=WAL")
                 conn.executescript(SCHEMA)
+                conn.executescript(MIGRATIONS)
                 _initialized = True
     return conn
 
@@ -98,24 +108,30 @@ def get_snapshots(riot_id: str, limit: int = 20) -> list:
         conn.close()
 
 
-def save_session(riot_id: str, user_message: str, coach_reply: str):
+def save_session(riot_id: str):
+    """Record that a coach exchange happened — deliberately without its text.
+
+    Rows here are keyed by the *searched* Riot ID, which is not the person
+    typing: anyone can look up anyone. Storing the conversation under that key
+    filed one visitor's words under a stranger's gamertag and let the next
+    visitor read them back. Only the count and timestamp are kept now; the
+    conversation itself lives in the browser that is having it.
+    """
     conn = get_conn()
     try:
         with conn:
-            conn.execute(
-                "INSERT INTO coach_sessions (riot_id, user_message, coach_reply) VALUES (?, ?, ?)",
-                (riot_id, user_message, coach_reply),
-            )
+            conn.execute("INSERT INTO coach_sessions (riot_id) VALUES (?)", (riot_id,))
     finally:
         conn.close()
 
 
 def get_sessions(riot_id: str, limit: int = 20) -> list:
+    """Session metadata only. The text columns are never selected — see save_session."""
     conn = get_conn()
     try:
         rows = conn.execute(
-            "SELECT id, created_at, user_message, coach_reply "
-            "FROM coach_sessions WHERE riot_id = ? ORDER BY id DESC LIMIT ?",
+            "SELECT id, created_at FROM coach_sessions "
+            "WHERE riot_id = ? ORDER BY id DESC LIMIT ?",
             (riot_id, limit),
         ).fetchall()
         return [dict(row) for row in rows]

@@ -162,18 +162,20 @@ Give the player a short coach message about where their head is at right now and
     return ask_claude(prompt, system=system)
 
 
-def coach_chat(riot_id: str, user_message: str, report: dict | None, snapshots: list, sessions: list) -> str:
+def coach_chat(riot_id: str, user_message: str, report: dict | None, snapshots: list, history: list) -> str:
+    """`history` is the client's own conversation (CoachTurn: role/text), not
+    stored rows — see CoachRequest.history in routes/mental.py for why."""
     system = (
         "You are a supportive but honest Valorant mental performance coach chatting with a player. "
         "Use their latest tilt data and the previous conversation as context. Be specific, practical, "
         "and encouraging without sugarcoating. Plain text only, 150 words max."
     )
     tilt_context = json.dumps(report, indent=2) if report else "No fresh match data available right now."
-    exchanges = [
-        f"Player: {s.get('user_message')}\nCoach: {s.get('coach_reply')}"
-        for s in reversed(sessions[:5])
+    turns = [
+        f"{'Player' if t.role == 'user' else 'Coach'}: {t.text}"
+        for t in history[-10:]
     ]
-    conversation = "\n\n".join(exchanges) if exchanges else "No previous conversation."
+    conversation = "\n".join(turns) if turns else "No previous conversation."
     prompt = f"""Player: {riot_id}
 
 Latest tilt report:

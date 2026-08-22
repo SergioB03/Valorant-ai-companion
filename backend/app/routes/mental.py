@@ -1,7 +1,9 @@
 from statistics import mean
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 from app.errors import upstream_to_http
 from app.limiter import limiter
 from app.services.riot_service import get_match_history, summarize_matches
@@ -10,11 +12,21 @@ from app.db import save_snapshot, get_snapshots, save_session, get_sessions
 
 router = APIRouter(prefix="/mental", tags=["mental"])
 
+class CoachTurn(BaseModel):
+    role: Literal["user", "coach"]
+    text: str = Field(max_length=2000)
+
+
 class CoachRequest(BaseModel):
     game_name: str
     tag_line: str
     region: str = "na"
     message: str
+    # Conversation context is supplied by the client and scoped to the browser
+    # doing the chatting. It is deliberately NOT read back from the database:
+    # stored rows are keyed by the *searched* Riot ID, so two different people
+    # looking up the same player would otherwise be fed each other's messages.
+    history: list[CoachTurn] = Field(default_factory=list, max_length=10)
 
 
 def _filter_mode(summaries: list, mode: str | None) -> list:
@@ -63,9 +75,8 @@ def _coach_sync(raw: dict | None, request: CoachRequest, riot_id: str) -> dict:
         except Exception:
             report = None
     snapshots = get_snapshots(riot_id, limit=5)
-    sessions = get_sessions(riot_id, limit=5)
-    reply = coach_chat(riot_id, request.message, report, snapshots, sessions)
-    save_session(riot_id, request.message, reply)
+    reply = coach_chat(riot_id, request.message, report, snapshots, request.history)
+    save_session(riot_id)
     return {
         "reply": reply,
         "tilt_score": report["tilt_score"] if report else None,
@@ -91,7 +102,10 @@ async def coach(request: Request, body: CoachRequest):
 
 
 @router.get("/profile/{game_name}/{tag_line}")
-def profile(game_name: str, tag_line: str):
+@limiter.limit("15/minute")
+def profile(request: Request, game_name: str, tag_line: str):
+    # Anyone can request any Riot ID here, so this returns aggregate history
+    # only — never the text of a coach conversation.
     riot_id = f"{game_name}#{tag_line}".lower()
     snapshots = get_snapshots(riot_id)
     sessions = get_sessions(riot_id)

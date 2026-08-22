@@ -82,8 +82,13 @@ export function tiltCheck(name, tag, region = "na", size = 10) {
   );
 }
 
-// POST /mental/coach { game_name, tag_line, region, message } -> { reply, tilt_score, tilt_level }
-export function coachChat(name, tag, region, message) {
+// POST /mental/coach { game_name, tag_line, region, message, history }
+//   -> { reply, tilt_score, tilt_level }
+// `history` carries this browser's own conversation so the coach has context.
+// The server does not store or replay conversation text — sending it from here
+// keeps a chat scoped to the person having it rather than to the Riot ID they
+// happened to search.
+export function coachChat(name, tag, region, message, history = []) {
   return request(`/mental/coach`, {
     endpoint: "/mental/coach",
     method: "POST",
@@ -92,6 +97,9 @@ export function coachChat(name, tag, region, message) {
       tag_line: tag,
       region,
       message,
+      history: history
+        .slice(-10)
+        .map((m) => ({ role: m.role, text: String(m.text).slice(0, 2000) })),
     }),
   });
 }

@@ -179,11 +179,20 @@ export default function MentalCoachTab({ player }) {
     if (!text || sending || !player) return;
     setChatError(null);
     setInput("");
+    // Snapshot the conversation *before* this message — it becomes the context
+    // sent with the request (the server keeps no transcript of its own).
+    const priorTurns = messages;
     setMessages((m) => [...m, { role: "user", text }]);
     setSending(true);
     const t0 = performance.now();
     try {
-      const res = await coachChat(player.name, player.tag, player.region, text);
+      const res = await coachChat(
+        player.name,
+        player.tag,
+        player.region,
+        text,
+        priorTurns,
+      );
       track("coach_message_sent", {
         latency_ms: Math.round(performance.now() - t0),
         ok: true,

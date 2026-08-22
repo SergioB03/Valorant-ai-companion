@@ -7,9 +7,13 @@ import MentalCoachTab from "./components/MentalCoachTab.jsx";
 import MetaTab from "./components/MetaTab.jsx";
 import { playerKey } from "./utils.js";
 import { track, trackSessionStart } from "./analytics.js";
-import { useGSAP, revealIn } from "./anim.js";
+import { useGSAP, revealIn, motionOK } from "./anim.js";
+import ScrambledText from "./components/reactbits/ScrambledText.jsx";
 
 const STORAGE_KEY = "vac:last-player";
+
+const FOOTER_TEXT =
+  "Powered by Claude + Henrik API. Not affiliated with or endorsed by Riot Games.";
 
 const TABS = [
   { id: "dashboard", label: "Dashboard" },
@@ -143,8 +147,16 @@ export default function App() {
       </main>
 
       <footer className="footer">
-        Powered by Claude + Henrik API. Not affiliated with or endorsed by Riot
-        Games.
+        {/* React Bits' ScrambledText decodes the characters the cursor passes
+            over. Purely decorative, so it's swapped for plain text under
+            reduced motion — and the text reads identically either way. */}
+        {motionOK() ? (
+          <ScrambledText radius={70} duration={0.9} speed={0.4} scrambleChars=".:">
+            {FOOTER_TEXT}
+          </ScrambledText>
+        ) : (
+          FOOTER_TEXT
+        )}
       </footer>
     </div>
   );

@@ -1459,6 +1459,22 @@ img {
   font-size: 12px;
 }
 
+/* React Bits' ScrambledText ships opinionated demo styling on .text-block
+   (7vw margin, monospace, white, 32px). Override it here rather than editing
+   the vendored CSS, so the component can be re-fetched upstream unchanged.
+   See src/components/reactbits/README.md. */
+.footer .text-block {
+  margin: 0;
+  max-width: none;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+.footer .text-block p {
+  margin: 0;
+}
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 760px) {

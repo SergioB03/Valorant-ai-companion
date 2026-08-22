@@ -68,6 +68,14 @@ gh workflow run deploy.yml      # or push anything
 ## 3. Custom domain — `infra/add-domain.sh`
 
 1. Register the domain in **Route 53 → Registered domains → Register domain** (cheapest TLDs there are around $3–5/yr — `.click`, `.link`; `.com` ≈ $15/yr). Registration creates the hosted zone automatically.
+
+   > **Pick a name with no Riot trademark in it.** Riot's fan-content policy
+   > ([Legal Jibber Jabber](https://www.riotgames.com/en/legal) §5) says you
+   > "may not register domain names … that use Riot Games or any of our
+   > trademarks, trade names, character names," so `valorant-companion.gg`
+   > would breach it while `tiltcheck.dev` is fine. The TLD is irrelevant —
+   > it's the mark inside the label that matters. Using the game's name in the
+   > *page title* is fine; putting it in the *domain* is not.
 2. ```bash
    infra/add-domain.sh yourdomain.tld
    ```

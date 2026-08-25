@@ -2,7 +2,11 @@
 
 > Because mechanics only get you so far — your mental gets you the rest of the way.
 
-**Live:** [rebuy.gg](https://rebuy.gg) · **Security write-up:** [SECURITY.md](./SECURITY.md) — an honest record of the vulnerabilities this project shipped with, how each was found, and what fixed them.
+**Live:** [rebuy.gg](https://rebuy.gg)
+
+**Two write-ups, both worth more than the code:**
+- [SECURITY.md](./SECURITY.md) — the vulnerabilities this project shipped with, how each was found, and what fixed them
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — the RAG pipeline and system design, measured, analysed, and redesigned to run well on a *cheap* model (before/after schemas + tradeoffs)
 
 ## The Problem
 
@@ -211,6 +215,7 @@ The frontend sends a small set of anonymous usage events (tab views, searches, a
 valorant-ai-companion/
 ├── DEPLOYMENT.md               # Deploy walkthrough (AWS: EC2 + CloudFront)
 ├── SECURITY.md                 # Vulnerabilities found and fixed, and the lessons
+├── ARCHITECTURE.md             # RAG + system design: measured, analysed, optimized
 ├── THIRD-PARTY-LICENSES.md     # Vendored code that isn't Apache-2.0
 ├── render.yaml                 # Legacy Render Blueprint (superseded by infra/)
 ├── ANALYTICS.md                # Analytics design doc (events, privacy, tradeoffs)

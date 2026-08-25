@@ -4,6 +4,7 @@ from fastapi.concurrency import run_in_threadpool
 from typing import Literal
 
 from pydantic import BaseModel, Field
+from app.alerts import notify_error
 from app.budget import BudgetExceeded
 from app.errors import upstream_to_http
 from app.limiter import limiter

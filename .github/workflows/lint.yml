@@ -1,0 +1,33 @@
+# Catches the class of bug that shipped to production undetected: mental.py
+# called notify_error() without importing it, so the tilt-check error path
+# raised NameError instead of its intended 502 — invisible until the failure it
+# was written to handle actually happened.
+#
+# Error-handling code is the least-exercised code in any app. A linter reads it
+# anyway. This runs in seconds and gates the deploy.
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      # F821 undefined-name is the one that would have caught the NameError.
+      # F401 unused-import and F811 redefinition catch the adjacent mistakes
+      # (an import removed while a call remains, a name shadowed by accident).
+      - name: Undefined names, unused and redefined imports
+        run: ruff check --select F821,F401,F811 backend/app
+      # Everything else ruff finds is reported but does not block, so tidying
+      # can happen gradually without a red pipeline blocking a security fix.
+      - name: Full ruff report (non-blocking)
+        run: ruff check backend/app || true

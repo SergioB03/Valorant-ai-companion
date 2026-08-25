@@ -44,6 +44,15 @@ CREATE INDEX IF NOT EXISTS idx_analytics_events_name_created
     ON analytics_events (name, created_at);
 CREATE INDEX IF NOT EXISTS idx_analytics_events_visitor
     ON analytics_events (visitor_id);
+
+-- One row per UTC day holding the day's estimated Anthropic spend. Read and
+-- written by app/budget.py, which refuses further Claude calls once the day's
+-- total reaches DAILY_BUDGET_USD.
+CREATE TABLE IF NOT EXISTS claude_spend (
+    day TEXT PRIMARY KEY,
+    cost_usd REAL NOT NULL DEFAULT 0,
+    calls INTEGER NOT NULL DEFAULT 0
+);
 """
 
 # Runs once per process alongside SCHEMA. Earlier versions stored the text of
@@ -151,12 +160,41 @@ FUNNEL_STEPS = [
 LATENCY_EVENTS = ("analyze_run", "tilt_check", "coach_message_sent")
 
 
+# Analytics ingestion is unauthenticated by design (the browser posts to it), so
+# the table is the one thing on this box an anonymous caller can grow without
+# limit. At the current 120 req/min per IP, 25 events of ~1 KB each, that is
+# ~180 MB/hour from a single address onto a 20 GB disk — and a full disk takes
+# the whole app down, not just analytics. Two independent bounds:
+ANALYTICS_RETENTION_DAYS = int(os.getenv("ANALYTICS_RETENTION_DAYS", "90"))
+ANALYTICS_MAX_ROWS = int(os.getenv("ANALYTICS_MAX_ROWS", "500000"))
+_PRUNE_EVERY = 200  # batches between prune passes; cheap amortised cost
+_insert_count = 0
+
+
+def _prune_analytics(conn) -> None:
+    """Drop events past the retention window, then enforce a hard row ceiling.
+
+    The ceiling is the part that matters under abuse: a flood can blow past
+    500k rows well inside the retention window, so age alone is not a bound.
+    """
+    conn.execute(
+        "DELETE FROM analytics_events WHERE created_at < datetime('now', ?)",
+        (f"-{ANALYTICS_RETENTION_DAYS} days",),
+    )
+    conn.execute(
+        "DELETE FROM analytics_events WHERE id <= "
+        "(SELECT MAX(id) - ? FROM analytics_events)",
+        (ANALYTICS_MAX_ROWS,),
+    )
+
+
 def insert_events(visitor_id: str, session_id: str, events: list):
     """Insert a batch of client events in a single transaction.
 
     Each event is a dict with keys: name, ts (client ms epoch), path, props.
     Server-received time is recorded by the created_at column default.
     """
+    global _insert_count
     conn = get_conn()
     try:
         with conn:
@@ -175,6 +213,9 @@ def insert_events(visitor_id: str, session_id: str, events: list):
                     for e in events
                 ],
             )
+            _insert_count += 1
+            if _insert_count % _PRUNE_EVERY == 0:
+                _prune_analytics(conn)
     finally:
         conn.close()
 

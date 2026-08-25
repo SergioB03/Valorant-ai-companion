@@ -5,6 +5,7 @@ import secrets
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
+from app.budget import status as budget_status
 from app.db import get_analytics_summary, insert_events
 from app.limiter import limiter
 
@@ -51,4 +52,6 @@ def summary(x_admin_token: str | None = Header(default=None)):
         raise HTTPException(status_code=403, detail="analytics summary disabled")
     if not x_admin_token or not secrets.compare_digest(x_admin_token, admin_token):
         raise HTTPException(status_code=403, detail="invalid admin token")
-    return get_analytics_summary()
+    # Spend rides along with the usage numbers so one authenticated request
+    # answers both "is anyone using this" and "what is it costing me today".
+    return {**get_analytics_summary(), "claude_budget": budget_status()}

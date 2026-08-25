@@ -4,6 +4,8 @@ import anthropic
 from dotenv import load_dotenv
 from pathlib import Path
 
+from app.budget import check_budget, record_spend
+
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-4-8")
@@ -17,11 +19,31 @@ client = anthropic.Anthropic(
     max_retries=0,
 )
 
+
+def _create(**kwargs):
+    """Every Claude call in this app goes through here.
+
+    Routing all of them past one function is the point: the daily budget check
+    and the spend accounting cannot be forgotten on a new endpoint the way a
+    per-route decorator can (which is exactly how /meta/ask ended up with no
+    cost ceiling at all).
+    """
+    check_budget()
+    message = client.messages.create(**kwargs)
+    usage = getattr(message, "usage", None)
+    if usage is not None:
+        record_spend(
+            kwargs.get("model", CLAUDE_MODEL),
+            getattr(usage, "input_tokens", 0) or 0,
+            getattr(usage, "output_tokens", 0) or 0,
+        )
+    return message
+
 def ask_claude(prompt: str, system: str | None = None, max_tokens: int = 4000) -> str:
     kwargs = {}
     if system:
         kwargs["system"] = system
-    message = client.messages.create(
+    message = _create(
         model=CLAUDE_MODEL,
         max_tokens=max_tokens,
         thinking={"type": "adaptive"},
@@ -91,7 +113,7 @@ Produce a personalized analysis as JSON with these fields:
 
 Keep every item concise, direct and encouraging. Plain text only inside each string — no markdown."""
 
-    message = client.messages.create(
+    message = _create(
         model=CLAUDE_MODEL,
         max_tokens=4000,
         thinking={"type": "adaptive"},

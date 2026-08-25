@@ -16,6 +16,7 @@ infrastructure and survives restarts. On a single instance that is sufficient;
 running more than one would need a shared counter.
 """
 
+import hashlib
 import logging
 import os
 import threading
@@ -81,6 +82,74 @@ def check_budget() -> None:
     if spent >= budget:
         logger.warning("Daily Claude budget reached: $%.4f of $%.2f", spent, budget)
         raise BudgetExceeded(f"daily budget ${budget:.2f} reached")
+
+
+# --- Per-visitor share of the daily budget -----------------------------------
+#
+# The global cap above stops the bill running away, but on its own it is a
+# denial-of-service vector: the per-minute rate limits still allow ~50 AI calls
+# a minute from ONE address, which drains a $5 day in about eight and a half
+# minutes and leaves every other visitor with 503s until UTC midnight. A cost
+# control that one person can trip for everybody is not much of a control.
+#
+# So each source also gets its own daily allowance underneath the global cap.
+# Normal use is a handful of actions per visit; the default here is far above
+# that and still far below what an attacker needs.
+
+
+class QuotaExceeded(Exception):
+    """Raised when one source has used its own daily allowance."""
+
+
+def daily_ip_quota() -> int:
+    try:
+        return int(os.getenv("FREE_AI_ACTIONS_PER_IP_PER_DAY", "40"))
+    except ValueError:
+        return 40
+
+
+def _ip_key(ip: str) -> str:
+    """Store a salted hash, never the address itself.
+
+    The analytics tables deliberately hold no IPs (see ANALYTICS.md) and this
+    must not be the thing that reintroduces them. The salt is per-day, so the
+    hashes are not linkable across days even if the database leaks.
+    """
+    return hashlib.sha256(f"{_today()}:{ip}".encode()).hexdigest()[:32]
+
+
+def check_ip_quota(ip: str) -> None:
+    quota = daily_ip_quota()
+    if quota <= 0:
+        return
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT calls FROM ip_usage WHERE day = ? AND ip_key = ?",
+            (_today(), _ip_key(ip)),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row and int(row["calls"]) >= quota:
+        raise QuotaExceeded(f"daily limit of {quota} AI actions reached")
+
+
+def record_ip_use(ip: str) -> None:
+    day, key = _today(), _ip_key(ip)
+    with _lock:
+        conn = get_conn()
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO ip_usage (day, ip_key, calls) VALUES (?, ?, 1) "
+                    "ON CONFLICT(day, ip_key) DO UPDATE SET calls = calls + 1",
+                    (day, key),
+                )
+                # Yesterday's rows are dead weight; drop them opportunistically
+                # so this table cannot grow without bound under IP rotation.
+                conn.execute("DELETE FROM ip_usage WHERE day < ?", (day,))
+        finally:
+            conn.close()
 
 
 def record_spend(model: str, input_tokens: int, output_tokens: int) -> float:

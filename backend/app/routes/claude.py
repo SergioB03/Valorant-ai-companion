@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import Depends, APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from app.errors import upstream_to_http
+from app.deps import ai_quota
 from app.limiter import limiter
 from app.services.claude_service import analyze_matches_structured
 from app.services.riot_service import get_match_history, summarize_matches
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/claude", tags=["claude"])
 # with the account holder responsible for the result under Anthropic's terms.
 # Every route below wraps user input in a purpose-built prompt instead.
 
-@router.get("/analyze/{game_name}/{tag_line}")
+@router.get("/analyze/{game_name}/{tag_line}", dependencies=[Depends(ai_quota)])
 @limiter.limit("10/minute")
 async def analyze(request: Request, game_name: str, tag_line: str, region: str = "na", size: int = 10, mode: str = "competitive"):
     size = max(1, min(size, 10))

@@ -53,6 +53,16 @@ CREATE TABLE IF NOT EXISTS claude_spend (
     cost_usd REAL NOT NULL DEFAULT 0,
     calls INTEGER NOT NULL DEFAULT 0
 );
+
+-- Each source's own share of the daily budget, so one visitor cannot spend
+-- everyone else's. ip_key is a per-day salted hash, never an address; rows for
+-- previous days are deleted on write (app/budget.py).
+CREATE TABLE IF NOT EXISTS ip_usage (
+    day TEXT NOT NULL,
+    ip_key TEXT NOT NULL,
+    calls INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, ip_key)
+);
 """
 
 # Runs once per process alongside SCHEMA. Earlier versions stored the text of

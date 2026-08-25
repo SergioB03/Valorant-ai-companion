@@ -1,5 +1,5 @@
 from statistics import mean
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import Depends, APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from typing import Literal
 
@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.alerts import notify_error
 from app.budget import BudgetExceeded
 from app.errors import upstream_to_http
+from app.deps import ai_quota
 from app.limiter import limiter
 from app.services.riot_service import get_match_history, summarize_matches
 from app.services.mental_service import detect_tilt, generate_coach_message, coach_chat
@@ -62,7 +63,7 @@ def _tilt_check_sync(raw: dict, game_name: str, tag_line: str, mode: str | None 
     return report
 
 
-@router.get("/tilt-check/{game_name}/{tag_line}")
+@router.get("/tilt-check/{game_name}/{tag_line}", dependencies=[Depends(ai_quota)])
 @limiter.limit("10/minute")
 async def tilt_check(request: Request, game_name: str, tag_line: str, region: str = "na", size: int = 10, mode: str = "competitive"):
     try:
@@ -93,7 +94,7 @@ def _coach_sync(raw: dict | None, request: CoachRequest, riot_id: str) -> dict:
     }
 
 
-@router.post("/coach")
+@router.post("/coach", dependencies=[Depends(ai_quota)])
 @limiter.limit("15/minute")
 async def coach(request: Request, body: CoachRequest):
     riot_id = f"{body.game_name}#{body.tag_line}".lower()

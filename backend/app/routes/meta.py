@@ -1,10 +1,11 @@
 import os
 import secrets
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import Depends, APIRouter, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from app.errors import upstream_to_http
+from app.deps import ai_quota
 from app.limiter import limiter
 from app.services import rag_service
 
@@ -21,7 +22,7 @@ class AskRequest(BaseModel):
     # model call. 2000 characters is far more than a real meta question needs.
     question: str = Field(min_length=1, max_length=2000)
 
-@router.post("/ask")
+@router.post("/ask", dependencies=[Depends(ai_quota)])
 @limiter.limit("15/minute")
 async def ask(request: Request, body: AskRequest):
     if not rag_service.is_available():

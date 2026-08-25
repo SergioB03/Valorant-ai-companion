@@ -22,6 +22,7 @@ import os
 import threading
 from datetime import datetime, timezone
 
+from app.alerts import DOWN, notify_alert
 from app.db import get_conn
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,16 @@ def check_budget() -> None:
     spent = spent_today()
     if spent >= budget:
         logger.warning("Daily Claude budget reached: $%.4f of $%.2f", spent, budget)
+        notify_alert(
+            "🛑 AI features are OFF — daily budget spent",
+            f"Spent **${spent:.2f}** of the ${budget:.2f} daily cap, so every "
+            "Claude-backed endpoint is returning 503 until 00:00 UTC.\n\n"
+            "Raise `DAILY_BUDGET_USD` to restore service sooner, or leave it "
+            "if this is someone abusing the app.",
+            key="budget:exhausted",
+            window=6 * 3600,
+            color=DOWN,
+        )
         raise BudgetExceeded(f"daily budget ${budget:.2f} reached")
 
 
@@ -179,6 +190,13 @@ def record_spend(model: str, input_tokens: int, output_tokens: int) -> float:
         logger.warning(
             "Claude spend at %.0f%% of the daily budget ($%.4f of $%.2f)",
             total / budget * 100, total, budget,
+        )
+        notify_alert(
+            "⚠️ Claude spend at 80% of today's budget",
+            f"**${total:.2f}** of ${budget:.2f} used. At this rate the AI "
+            "features will start returning 503 before the day is out.",
+            key="budget:80pct",
+            window=6 * 3600,
         )
     return total
 

@@ -1,5 +1,16 @@
 # Production stack for the EC2 box (see DEPLOYMENT.md). Runs locally too:
 #   WEB_PORT=8080 docker compose up --build     ->  http://localhost:8080
+
+# Docker's default json-file driver keeps every log line forever. On a 20 GB
+# root volume that makes "the disk filled up" the most likely way this app dies
+# unattended — and a full disk takes down the whole box, not just logging.
+# 30 MB per service is plenty to debug a recent incident.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   api:
     build: ./backend
@@ -10,6 +21,7 @@ services:
     volumes:
       - state:/app/state         # SQLite (mental profiles + analytics) survives redeploys
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3)"]
       interval: 30s
@@ -29,6 +41,7 @@ services:
     depends_on:
       - api
     restart: unless-stopped
+    logging: *default-logging
 
 volumes:
   state:

@@ -21,7 +21,8 @@ class CoachRequest(BaseModel):
     game_name: str
     tag_line: str
     region: str = "na"
-    message: str
+    # Same ceiling as CoachTurn.text below — this text is billed per token.
+    message: str = Field(min_length=1, max_length=2000)
     # Conversation context is supplied by the client and scoped to the browser
     # doing the chatting. It is deliberately NOT read back from the database:
     # stored rows are keyed by the *searched* Riot ID, so two different people

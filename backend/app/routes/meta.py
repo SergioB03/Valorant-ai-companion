@@ -3,7 +3,7 @@ import secrets
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.errors import upstream_to_http
 from app.limiter import limiter
 from app.services import rag_service
@@ -16,7 +16,10 @@ UNAVAILABLE_DETAIL = (
 )
 
 class AskRequest(BaseModel):
-    question: str
+    # Capped because every question is billed to us by the token. Without a
+    # ceiling, one request could carry megabytes of text straight into a paid
+    # model call. 2000 characters is far more than a real meta question needs.
+    question: str = Field(min_length=1, max_length=2000)
 
 @router.post("/ask")
 @limiter.limit("15/minute")

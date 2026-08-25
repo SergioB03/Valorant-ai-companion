@@ -4,6 +4,7 @@ from fastapi.concurrency import run_in_threadpool
 from typing import Literal
 
 from pydantic import BaseModel, Field
+from app.budget import BudgetExceeded
 from app.errors import upstream_to_http
 from app.limiter import limiter
 from app.services.riot_service import get_match_history, summarize_matches
@@ -47,6 +48,12 @@ def _tilt_check_sync(raw: dict, game_name: str, tag_line: str, mode: str | None 
     except Exception as e:
         # Still persist the tilt report even if the Claude call failed.
         save_snapshot(report["riot_id"], report)
+        # Hitting the daily spend ceiling is not a failure to alert on: it is the
+        # breaker working. Let it through so the caller gets the friendly 503
+        # instead of a misleading 502, and so a blocked request doesn't fire a
+        # Discord alert every single time.
+        if isinstance(e, BudgetExceeded):
+            raise
         notify_error("mental.tilt_check.coach_message", e)
         raise HTTPException(status_code=502, detail="Coach message generation failed; tilt report was saved.")
     report["coach_message"] = coach_message

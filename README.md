@@ -2,6 +2,8 @@
 
 > Because mechanics only get you so far — your mental gets you the rest of the way.
 
+**Live:** [rebuy.gg](https://rebuy.gg) · **Security write-up:** [SECURITY.md](./SECURITY.md) — an honest record of the vulnerabilities this project shipped with, how each was found, and what fixed them.
+
 ## The Problem
 
 There are a hundred aim trainers, stat trackers, and coach sites for Valorant.
@@ -26,7 +28,8 @@ Valorant AI Companion is a full-stack AI-powered app with two core pillars:
 - Detects tilt patterns from your match history — loss streaks, KDA and headshot % drops, low win rates
 - Identifies your emotional triggers (specific maps and agents you keep losing on)
 - Scores your tilt 0–100 and delivers a personalized coach message plus a concrete recommendation ("queue up" vs. "stop for today")
-- Builds a mental profile over time — every tilt check and coach conversation is saved, so advice gets smarter the more you use it
+- Builds a mental profile over time — tilt scores are tracked across sessions so you can see whether your headspace is trending up or down
+- **Conversations are never stored server-side.** An early version filed chat text under the *searched* player's Riot ID, where anyone could read it back; see [SECURITY.md](./SECURITY.md)
 - Designed for casual, competitive, and pro players alike
 
 ## Tech Stack
@@ -64,6 +67,11 @@ This project is my attempt to bridge that gap — combining my passion for the g
 - [x] Deployment configs for Vercel + Render
 - [x] AWS deployment — EC2 + CloudFront, persistent SQLite, push-to-deploy GitHub Actions
 - [x] Anonymous usage analytics + per-IP rate limiting
+- [x] Custom domain with managed TLS ([rebuy.gg](https://rebuy.gg))
+- [x] Security hardening pass — see [SECURITY.md](./SECURITY.md)
+- [x] Abuse and cost controls — daily spend ceiling, per-visitor quotas, bounded inputs
+- [x] Operational alerting for silent failures (budget, upstream key, rate limits)
+- [ ] Automated backups of the SQLite state
 - [ ] Demo video
 - [ ] Migrate to production Riot API key
 
@@ -201,8 +209,10 @@ The frontend sends a small set of anonymous usage events (tab views, searches, a
 
 ```
 valorant-ai-companion/
-├── render.yaml                 # Render Blueprint (backend deploy)
-├── DEPLOYMENT.md               # Deploy walkthrough (Render + Vercel)
+├── DEPLOYMENT.md               # Deploy walkthrough (AWS: EC2 + CloudFront)
+├── SECURITY.md                 # Vulnerabilities found and fixed, and the lessons
+├── THIRD-PARTY-LICENSES.md     # Vendored code that isn't Apache-2.0
+├── render.yaml                 # Legacy Render Blueprint (superseded by infra/)
 ├── ANALYTICS.md                # Analytics design doc (events, privacy, tradeoffs)
 ├── start-dev.bat               # Windows one-click dev launcher (backend :8001 + frontend :5173)
 ├── LICENSE

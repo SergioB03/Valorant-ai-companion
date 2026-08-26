@@ -7,7 +7,7 @@ import MentalCoachTab from "./components/MentalCoachTab.jsx";
 import MetaTab from "./components/MetaTab.jsx";
 import { playerKey } from "./utils.js";
 import { track, trackSessionStart } from "./analytics.js";
-import { useGSAP, revealIn, motionOK } from "./anim.js";
+import { useGSAP, revealIn, motionOK, canHover } from "./anim.js";
 import ScrambledText from "./components/reactbits/ScrambledText.jsx";
 
 const STORAGE_KEY = "vac:last-player";
@@ -15,11 +15,14 @@ const STORAGE_KEY = "vac:last-player";
 const FOOTER_TEXT =
   "Powered by Claude + Henrik API. Not affiliated with or endorsed by Riot Games.";
 
+// `short` is shown on narrow screens. Without it "Performance Analysis" pushes
+// the last two tabs off a phone screen — the bar scrolls, but nothing signals
+// that, so half the app looked missing.
 const TABS = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "analysis", label: "Performance Analysis" },
-  { id: "mental", label: "Mental Coach" },
-  { id: "meta", label: "Meta Q&A" },
+  { id: "dashboard", label: "Dashboard", short: "Stats" },
+  { id: "analysis", label: "Performance Analysis", short: "Analysis" },
+  { id: "mental", label: "Mental Coach", short: "Coach" },
+  { id: "meta", label: "Meta Q&A", short: "Meta" },
 ];
 
 function loadSavedPlayer() {
@@ -122,7 +125,8 @@ export default function App() {
             className={`tab ${tab === t.id ? "active" : ""}`}
             onClick={() => handleTab(t.id)}
           >
-            {t.label}
+            <span className="tab-full">{t.label}</span>
+            <span className="tab-short" aria-hidden="true">{t.short}</span>
           </button>
         ))}
       </nav>
@@ -150,7 +154,7 @@ export default function App() {
         {/* React Bits' ScrambledText decodes the characters the cursor passes
             over. Purely decorative, so it's swapped for plain text under
             reduced motion — and the text reads identically either way. */}
-        {motionOK() ? (
+        {motionOK() && canHover() ? (
           <ScrambledText radius={70} duration={0.9} speed={0.4} scrambleChars=".:">
             {FOOTER_TEXT}
           </ScrambledText>

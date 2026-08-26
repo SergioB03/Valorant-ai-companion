@@ -344,6 +344,10 @@ img {
   overflow-x: auto;
 }
 
+.tab-short {
+  display: none;
+}
+
 .tab {
   position: relative;
   background: transparent;
@@ -1487,7 +1491,98 @@ img {
 
 /* ---------- Responsive ---------- */
 
+/* ---------- Mobile ----------
+   The app was built desktop-first. These rules fix what that missed:
+   the tab bar pushed two of the four sections off-screen (it scrolled, but
+   nothing signalled that, so half the app looked missing), and the search row
+   squeezed four controls onto one line until the name field was too narrow to
+   show its own placeholder. */
+
 @media (max-width: 760px) {
+  /* Swap to the short tab labels so all four fit without scrolling. */
+  .tab-full {
+    display: none;
+  }
+
+  .tab-short {
+    display: inline;
+  }
+
+  .tabs {
+    gap: 0;
+    /* Still scrollable as a fallback on very narrow screens, but without a
+       visible scrollbar eating vertical space. */
+    scrollbar-width: none;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 12px 6px 13px;   /* >=44px tall: comfortable touch target */
+    letter-spacing: 1px;
+    text-align: center;
+  }
+
+  /* Search: a 2x2 grid rather than wrapped flex. Four controls on one 390px
+     row squeezed the name field down to ~60px — narrower than its own
+     "Player name" placeholder. Grid makes the rows deterministic:
+        [ name          ] [ #TAG ]
+        [ region        ] [ TRACK ] */
+  .search {
+    display: grid;
+    grid-template-columns: 1fr 104px;
+    gap: 8px;
+  }
+
+  .search .search-name {
+    grid-column: 1 / 2;
+    width: auto;
+    min-width: 0;
+  }
+
+  .search .tag-field {
+    grid-column: 2 / 3;
+    min-width: 0;
+  }
+
+  .search .tag-field input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .search select {
+    grid-column: 1 / 2;
+  }
+
+  .search .btn.accent {
+    grid-column: 2 / 3;
+    padding-inline: 8px;
+  }
+
+  /* Inputs at <16px make iOS Safari zoom the whole page on focus. */
+  .search input,
+  .search select,
+  .chat-input input {
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  .btn {
+    min-height: 44px;
+  }
+
+  .app {
+    padding: 0 14px 48px;
+  }
+
+  h1 {
+    font-size: 26px;
+  }
+
   .topbar {
     flex-direction: column;
     align-items: stretch;

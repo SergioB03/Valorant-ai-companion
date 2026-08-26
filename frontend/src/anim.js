@@ -18,6 +18,14 @@ export const EASE_SNAP = "power4.out";
 
 export const motionOK = () => !prefersReducedMotion();
 
+/** True only for devices with a real pointer. Hover-driven effects can never
+ *  fire on touch, so rendering them there is pure cost — and in ScrambledText's
+ *  case its per-character spans also let the browser break lines mid-word. */
+export const canHover = () =>
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+
 /** Tween a number for display. Returns the tween so callers can kill it. */
 export function tweenNumber(from, to, onUpdate, opts = {}) {
   const { duration = 0.9, ease = EASE, decimals = 0 } = opts;

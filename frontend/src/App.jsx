@@ -122,6 +122,12 @@ export default function App() {
             key={t.id}
             role="tab"
             aria-selected={tab === t.id}
+            // The visible label swaps with viewport width, and BOTH spans are
+            // excluded from the accessible name at some size (one by
+            // display:none, the other by aria-hidden) — which left these tabs
+            // nameless to a screen reader on mobile. An explicit aria-label
+            // pins the full, meaningful name at every width.
+            aria-label={t.label}
             className={`tab ${tab === t.id ? "active" : ""}`}
             onClick={() => handleTab(t.id)}
           >

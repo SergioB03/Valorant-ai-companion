@@ -36,6 +36,14 @@ docker compose up -d --build --remove-orphans
 docker image prune -f >/dev/null
 docker builder prune -f --keep-storage 2g >/dev/null   # keep BuildKit cache bounded on the 20 GB disk
 
+echo "==> Nightly backup cron"
+# Idempotent: rewrite the entry every deploy so the schedule always matches
+# what's in the repo. 07:15 UTC is a quiet hour for this app.
+chmod +x "$APP_DIR"/infra/*.sh 2>/dev/null || true
+CRON_LINE="15 7 * * * $APP_DIR/infra/backup.sh >> /var/log/vac-backup.log 2>&1"
+( crontab -l 2>/dev/null | grep -v "infra/backup.sh" ; echo "$CRON_LINE" ) | crontab -
+echo "    $(crontab -l | grep -c 'infra/backup.sh') backup job installed (07:15 UTC daily)"
+
 echo "==> Health"
 for i in $(seq 1 45); do
   if curl -fsS -H "X-Origin-Verify: $ORIGIN_SECRET" http://localhost/api/ >/dev/null 2>&1; then

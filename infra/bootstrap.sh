@@ -70,6 +70,28 @@ if ! aws ssm get-parameter --name "$PARAM_PREFIX/ORIGIN_SECRET" >/dev/null 2>&1;
 fi
 ORIGIN_SECRET=$(aws ssm get-parameter --name "$PARAM_PREFIX/ORIGIN_SECRET" --with-decryption --query Parameter.Value --output text)
 
+# ----------------------------------------------------------------------------- backups
+log "S3 bucket for nightly SQLite backups"
+BUCKET="$APP-backups-$ACCOUNT"
+if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+  note "reusing $BUCKET"
+else
+  if [ "$REGION" = us-east-1 ]; then
+    aws s3api create-bucket --bucket "$BUCKET" --region "$REGION" >/dev/null
+  else
+    aws s3api create-bucket --bucket "$BUCKET" --region "$REGION"       --create-bucket-configuration "LocationConstraint=$REGION" >/dev/null
+  fi
+  note "created $BUCKET"
+fi
+# Private, encrypted, versioned, and self-expiring. tilt_snapshots is the only
+# data here that cannot be regenerated, and the root volume it lives on is
+# created with DeleteOnTermination=true.
+aws s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration   BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+aws s3api put-bucket-encryption --bucket "$BUCKET" --server-side-encryption-configuration   '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled
+aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --lifecycle-configuration   '{"Rules":[{"ID":"expire-old-backups","Status":"Enabled","Filter":{"Prefix":"companion/"},"Expiration":{"Days":90},"NoncurrentVersionExpiration":{"NoncurrentDays":30}}]}' >/dev/null
+aws ssm put-parameter --name "$PARAM_PREFIX/BACKUP_BUCKET" --value "$BUCKET" --type String --overwrite >/dev/null
+
 # ----------------------------------------------------------------------------- instance role
 log "IAM instance role"
 ROLE=$APP-ec2-role
@@ -89,6 +111,8 @@ aws iam detach-role-policy --role-name "$ROLE" --policy-arn arn:aws:iam::aws:pol
 # against each parameter (parameter/vac/NAME) — so the policy needs both ARNs.
 aws iam put-role-policy --role-name "$ROLE" --policy-name read-app-parameters --policy-document \
   "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"ssm:GetParametersByPath\",\"ssm:GetParameters\",\"ssm:GetParameter\"],\"Resource\":[\"arn:aws:ssm:$REGION:$ACCOUNT:parameter$PARAM_PREFIX\",\"arn:aws:ssm:$REGION:$ACCOUNT:parameter$PARAM_PREFIX/*\"]}]}"
+# Write-only, and only to this one bucket.
+aws iam put-role-policy --role-name "$ROLE" --policy-name write-backups --policy-document   "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:ListBucket\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::$BUCKET\",\"arn:aws:s3:::$BUCKET/*\"]}]}"
 if ! aws iam get-instance-profile --instance-profile-name "$ROLE" >/dev/null 2>&1; then
   aws iam create-instance-profile --instance-profile-name "$ROLE" >/dev/null
 fi

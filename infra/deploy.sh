@@ -36,13 +36,38 @@ docker compose up -d --build --remove-orphans
 docker image prune -f >/dev/null
 docker builder prune -f --keep-storage 2g >/dev/null   # keep BuildKit cache bounded on the 20 GB disk
 
-echo "==> Nightly backup cron"
-# Idempotent: rewrite the entry every deploy so the schedule always matches
-# what's in the repo. 07:15 UTC is a quiet hour for this app.
+echo "==> Nightly backup timer"
+# A systemd timer, not cron: Amazon Linux 2023 ships no cron daemon at all
+# (`crontab: command not found`), while systemd is always present. Persistent=true
+# also means a backup missed while the box was down runs at the next boot, which
+# plain cron would silently skip.
+# Invoked via `bash <script>` so a lost exec bit can never break it.
 chmod +x "$APP_DIR"/infra/*.sh 2>/dev/null || true
-CRON_LINE="15 7 * * * $APP_DIR/infra/backup.sh >> /var/log/vac-backup.log 2>&1"
-( crontab -l 2>/dev/null | grep -v "infra/backup.sh" ; echo "$CRON_LINE" ) | crontab -
-echo "    $(crontab -l | grep -c 'infra/backup.sh') backup job installed (07:15 UTC daily)"
+cat > /etc/systemd/system/vac-backup.service <<UNIT
+[Unit]
+Description=Back up the Valorant AI Companion SQLite database to S3
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=$APP_DIR
+ExecStart=/bin/bash $APP_DIR/infra/backup.sh
+UNIT
+cat > /etc/systemd/system/vac-backup.timer <<'UNIT'
+[Unit]
+Description=Nightly SQLite backup
+
+[Timer]
+OnCalendar=*-*-* 07:15:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now vac-backup.timer >/dev/null 2>&1
+echo "    next run: $(systemctl show vac-backup.timer -p NextElapseUSecRealtime --value 2>/dev/null || echo 'scheduled')"
 
 echo "==> Health"
 for i in $(seq 1 45); do

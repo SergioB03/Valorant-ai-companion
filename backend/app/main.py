@@ -12,7 +12,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.alerts import notify_error
 from app.limiter import limiter
-from app.routes import analytics, claude, riot, mental, meta
+from app.routes import analytics, claude, health, riot, mental, meta
 from app.services.rag_service import warm_index_async
 
 logger = logging.getLogger(__name__)
@@ -88,6 +88,7 @@ async def security_headers(request: Request, call_next):
         )
     return response
 
+app.include_router(health.router)
 app.include_router(claude.router)
 app.include_router(riot.router)
 app.include_router(mental.router)

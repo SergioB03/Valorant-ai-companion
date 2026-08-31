@@ -31,3 +31,19 @@ jobs:
       # can happen gradually without a red pipeline blocking a security fix.
       - name: Full ruff report (non-blocking)
         run: ruff check backend/app || true
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # requirements-dev.txt deliberately omits chromadb; conftest.py stubs it,
+      # so the suite runs in seconds instead of waiting on a large native build
+      # for code these tests never execute.
+      - run: pip install -r backend/requirements-dev.txt
+      - name: Tests
+        run: python -m pytest backend/tests -q
+        env:
+          PYTHONPATH: backend

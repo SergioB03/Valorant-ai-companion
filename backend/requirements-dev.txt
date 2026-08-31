@@ -1,5 +1,17 @@
-# Test/lint tooling. Kept out of requirements.txt so the production image does
-# not ship a test runner.
--r requirements.txt
+# Test tooling and the runtime packages the suite actually imports.
+#
+# Deliberately NOT "-r requirements.txt": that pins chromadb, a large native
+# dependency only the RAG feature needs. conftest.py stubs it, so installing it
+# would add minutes to every CI run for code these tests never execute. Versions
+# are kept in step with requirements.txt by hand -- if a pin moves there and a
+# test starts failing, that mismatch is the first thing to check.
+
+anthropic==0.96.0
+fastapi==0.136.0
+httpx==0.28.1
+pydantic==2.13.3
+python-dotenv==1.2.2
+slowapi==0.1.10
+starlette==1.0.0
 
 pytest==8.3.4

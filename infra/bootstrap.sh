@@ -30,6 +30,7 @@ REPO=${REPO:-SergioB03/Valorant-ai-companion}
 BRANCH=${BRANCH:-main}
 ENV_FILE=${ENV_FILE:-backend/.env}
 PARAM_PREFIX=/$APP
+BUDGET_TABLE=${BUDGET_TABLE:-$APP-budget}
 export AWS_DEFAULT_REGION=$REGION
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -92,6 +93,31 @@ aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration St
 aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --lifecycle-configuration   '{"Rules":[{"ID":"expire-old-backups","Status":"Enabled","Filter":{"Prefix":"companion/"},"Expiration":{"Days":90},"NoncurrentVersionExpiration":{"NoncurrentDays":30}}]}' >/dev/null
 aws ssm put-parameter --name "$PARAM_PREFIX/BACKUP_BUCKET" --value "$BUCKET" --type String --overwrite >/dev/null
 
+# ----------------------------------------------------------------------------- budget counters
+# The daily spend total and each source's share live in SQLite on the instance,
+# which is correct for exactly one instance. Two would each keep their own total,
+# so the cap would multiply by the instance count, and a deploy onto fresh
+# storage would reset the day's spend to zero. This table moves those two
+# counters off the box: atomic ADD means concurrent writers cannot lose an
+# increment, and TTL reaps day-buckets without a cleanup job.
+#
+# Created here but NOT switched on. The app keeps using SQLite until
+# /vac/BUDGET_TABLE_NAME exists -- see the note printed at the end.
+log "DynamoDB table for the budget counters ($BUDGET_TABLE)"
+if aws dynamodb describe-table --table-name "$BUDGET_TABLE" >/dev/null 2>&1; then
+  note "reusing $BUDGET_TABLE"
+else
+  # On-demand: these are tiny and bursty, so provisioned capacity would be
+  # guesswork. At this volume the cost rounds to nothing.
+  aws dynamodb create-table --table-name "$BUDGET_TABLE"     --attribute-definitions AttributeName=pk,AttributeType=S     --key-schema AttributeName=pk,KeyType=HASH     --billing-mode PAY_PER_REQUEST >/dev/null
+  aws dynamodb wait table-exists --table-name "$BUDGET_TABLE"
+  note "created $BUDGET_TABLE"
+fi
+if ! aws dynamodb describe-time-to-live --table-name "$BUDGET_TABLE"        --query 'TimeToLiveDescription.TimeToLiveStatus' --output text 2>/dev/null | grep -q ENABLED; then
+  aws dynamodb update-time-to-live --table-name "$BUDGET_TABLE"     --time-to-live-specification "Enabled=true,AttributeName=ttl" >/dev/null
+  note "TTL enabled on ttl"
+fi
+
 # ----------------------------------------------------------------------------- instance role
 log "IAM instance role"
 ROLE=$APP-ec2-role
@@ -111,6 +137,8 @@ aws iam detach-role-policy --role-name "$ROLE" --policy-arn arn:aws:iam::aws:pol
 # against each parameter (parameter/vac/NAME) — so the policy needs both ARNs.
 aws iam put-role-policy --role-name "$ROLE" --policy-name read-app-parameters --policy-document \
   "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"ssm:GetParametersByPath\",\"ssm:GetParameters\",\"ssm:GetParameter\"],\"Resource\":[\"arn:aws:ssm:$REGION:$ACCOUNT:parameter$PARAM_PREFIX\",\"arn:aws:ssm:$REGION:$ACCOUNT:parameter$PARAM_PREFIX/*\"]}]}"
+# Two item-level actions on one table. No scan, no delete, no table management.
+aws iam put-role-policy --role-name "$ROLE" --policy-name budget-counters --policy-document   "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:UpdateItem\"],\"Resource\":\"arn:aws:dynamodb:$REGION:$ACCOUNT:table/$BUDGET_TABLE\"}]}"
 # Write-only, and only to this one bucket.
 aws iam put-role-policy --role-name "$ROLE" --policy-name write-backups --policy-document   "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:ListBucket\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::$BUCKET\",\"arn:aws:s3:::$BUCKET/*\"]}]}"
 if ! aws iam get-instance-profile --instance-profile-name "$ROLE" >/dev/null 2>&1; then
@@ -326,6 +354,11 @@ fi
 echo "  Instance   $INSTANCE_ID  ($PUBLIC_IP)"
 echo "  Deploys    push to '$BRANCH' -> GitHub Actions -> SSM -> infra/deploy.sh"
 echo "  Domain     infra/add-domain.sh <your-domain>   (after registering it in Route 53)"
+echo "  Counters   SQLite (per-instance). To share them across instances:"
+echo "               aws ssm put-parameter --name $PARAM_PREFIX/BUDGET_TABLE_NAME \\"
+echo "                 --value $BUDGET_TABLE --type String --overwrite"
+echo "             then redeploy. The table and IAM grant already exist; this"
+echo "             switch is left to you because it resets today's spend total."
 if [ -n "$ADMIN_TOKEN" ]; then
   echo "  ADMIN_TOKEN (save it — not shown again):  $ADMIN_TOKEN"
 fi

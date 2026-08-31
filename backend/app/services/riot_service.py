@@ -8,41 +8,22 @@ from pathlib import Path
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 
-
-
-
-# OFFICIAL RIOT API (Pending production key approval, currently using a development key with limited access)
-#RIOT_API_KEY = os.getenv("RIOT_API_KEY")
-
-#async def get_account_by_riot_id(game_name: str, tag_line: str, region: str = "americas"):
-#    url = f"https://{region}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}"
-#    headers = {"X-Riot-Token": RIOT_API_KEY}
-#    
-#    async with httpx.AsyncClient() as client:
-#        response = await client.get(url, headers=headers)
-#        response.raise_for_status()
-#        return response.json()
-#
-#async def get_match_history(puuid: str, region: str = "americas", count: int = 5):
-#    url = f"https://{region}.api.riotgames.com/val/match/v1/matchlists/by-puuid/{puuid}"
-#    headers = {"X-Riot-Token": RIOT_API_KEY}
-#    
-#    async with httpx.AsyncClient() as client:
-#        response = await client.get(url, headers=headers)
-#        response.raise_for_status()
-#        return response.json()
-
-
 # ---- HENRIK UNOFFICIAL RIOT API (active)
 
-HENRIK_API_KEY = os.getenv("RIOT_API_KEY")
+# The provider is HenrikDev, not Riot. The variable was named RIOT_API_KEY back
+# when the official Riot API was still the plan; that plan is gone, so the new
+# name is canonical. The old one is still accepted because production reads its
+# environment from SSM (/vac/*) via infra/deploy.sh -- renaming the parameter and
+# the code in one step would break the running app between the two. Add
+# /vac/HENRIK_API_KEY, deploy, then delete /vac/RIOT_API_KEY and this fallback.
+HENRIK_API_KEY = os.getenv("HENRIK_API_KEY") or os.getenv("RIOT_API_KEY")
 HENRIK_BASE_URL = "https://api.henrikdev.xyz/valorant"
 
 
 async def _henrik_get(url: str, params: dict | None = None):
     """GET with one automatic retry on transient failures (network errors / upstream 5xx)."""
     if not HENRIK_API_KEY:
-        raise RuntimeError("RIOT_API_KEY is not set")
+        raise RuntimeError("HENRIK_API_KEY is not set (legacy name: RIOT_API_KEY)")
     headers = {"Authorization": HENRIK_API_KEY}
     async with httpx.AsyncClient(timeout=15.0) as client:
         for attempt in (1, 2):

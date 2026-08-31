@@ -1,5 +1,9 @@
 # 🧠 Valorant AI Companion
 
+[![Lint](https://github.com/SergioB03/Valorant-ai-companion/actions/workflows/lint.yml/badge.svg)](https://github.com/SergioB03/Valorant-ai-companion/actions/workflows/lint.yml)
+[![Deploy to AWS](https://github.com/SergioB03/Valorant-ai-companion/actions/workflows/deploy.yml/badge.svg)](https://github.com/SergioB03/Valorant-ai-companion/actions/workflows/deploy.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
+
 > Because mechanics only get you so far — your mental gets you the rest of the way.
 
 **Live:** [rebuy.gg](https://rebuy.gg)

@@ -71,3 +71,11 @@ blocked-storage tolerance. `src/utils.spec.js` extended: recent-players dedupe/c
 parse. Starter-prompt send-path equivalence is guaranteed by construction (one `send()`
 function); no component-level test was added because the project has no React testing library
 and adding one was out of scope for this wave.
+
+## After (live)
+
+- `after-landing.png` — the dead end is now a pitch: mental-game hero, trust badge row,
+  Mental Coach second in the tab order, Privacy & GitHub in the footer.
+- `after-mental-tab.png` — coach tab with tappable starter prompts; AI reports now persist
+  per player with a "generated Xh ago" stamp.
+Deployed through the CI-gated pipeline (lint + 84 backend tests + 53 frontend tests + build).

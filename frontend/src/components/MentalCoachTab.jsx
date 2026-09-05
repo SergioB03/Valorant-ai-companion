@@ -2,16 +2,29 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { tiltCheck, coachChat, getMentalProfile, isCancelled } from "../api.js";
 import {
   LEVEL_COLORS,
+  playerKey,
+  relativeDate,
   shortDateTime,
   splitParagraphs,
   stripMarkdown,
 } from "../utils.js";
+import { loadReport, saveReport } from "../reports.js";
 import { Spinner, ErrorBanner, EmptyState } from "./common.jsx";
 import { Insignia, AgentBadge } from "./Insignia.jsx";
 import TiltMeter from "./TiltMeter.jsx";
 import Sparkline from "./Sparkline.jsx";
 import Stopwatch from "./Stopwatch.jsx";
 import { track } from "../analytics.js";
+
+// Starter prompts for an empty chat — same chip pattern as MetaTab's
+// EXAMPLES. Each routes through the exact same send() path as a typed
+// message, so the optimistic-rollback error handling and the
+// coach_message_sent analytics behave identically either way.
+const STARTERS = [
+  "Why do I keep losing on Icebox?",
+  "Should I keep queueing tonight?",
+  "Help me reset after that game",
+];
 
 function TrendBadge({ trend }) {
   const map = {
@@ -112,13 +125,24 @@ function TrendPair({ label, trend, digits }) {
 }
 
 export default function MentalCoachTab({ player, active }) {
-  const [tilt, setTilt] = useState({
-    loading: false,
-    error: null,
-    report: null,
-    cancelled: false,
-    elapsedMs: null,
+  const [tilt, setTilt] = useState(() => {
+    // Hydrate the last saved tilt report for this player — the keyed remount
+    // in App.jsx re-runs this initializer on every player switch. Hydration
+    // fires no tilt_check analytics (tracking lives inside runTiltCheck).
+    const saved = player ? loadReport("tilt", playerKey(player)) : null;
+    return {
+      loading: false,
+      error: null,
+      report: saved ? saved.result : null,
+      cancelled: false,
+      elapsedMs: null,
+      at: saved ? saved.at : null,
+    };
   });
+  // Chat messages are deliberately NEVER persisted (no localStorage, no
+  // backend transcript) — the conversation is personal, session-scoped
+  // context that only ever travels with the user's own requests. Only the
+  // tilt *report* above is cached; see src/reports.js.
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -179,6 +203,7 @@ export default function MentalCoachTab({ player, active }) {
       report: null,
       cancelled: false,
       elapsedMs: null,
+      at: null,
     });
     const t0 = performance.now();
     try {
@@ -192,8 +217,16 @@ export default function MentalCoachTab({ player, active }) {
         latency_ms: elapsedMs,
         ok: true,
       });
+      saveReport("tilt", playerKey(player), report);
       if (!aliveRef.current) return;
-      setTilt({ loading: false, error: null, report, cancelled: false, elapsedMs });
+      setTilt({
+        loading: false,
+        error: null,
+        report,
+        cancelled: false,
+        elapsedMs,
+        at: Date.now(),
+      });
       loadProfile();
     } catch (err) {
       if (isCancelled(err)) {
@@ -204,6 +237,7 @@ export default function MentalCoachTab({ player, active }) {
             report: null,
             cancelled: true,
             elapsedMs: null,
+            at: null,
           });
         return;
       }
@@ -218,6 +252,7 @@ export default function MentalCoachTab({ player, active }) {
         report: null,
         cancelled: false,
         elapsedMs: null,
+        at: null,
       });
     }
   }
@@ -228,9 +263,10 @@ export default function MentalCoachTab({ player, active }) {
     tiltAbortRef.current?.abort();
   }
 
-  async function sendMessage(e) {
-    e.preventDefault();
-    const text = input.trim();
+  // Single send path for typed messages AND starter chips — the optimistic
+  // append, rollback-and-restore on failure, and analytics live only here.
+  async function send(rawText) {
+    const text = (rawText || "").trim();
     if (!text || sending || !player) return;
     setChatError(null);
     setInput("");
@@ -283,6 +319,11 @@ export default function MentalCoachTab({ player, active }) {
     } finally {
       if (aliveRef.current) setSending(false);
     }
+  }
+
+  function handleChatSubmit(e) {
+    e.preventDefault();
+    send(input);
   }
 
   if (!player) {
@@ -348,11 +389,18 @@ export default function MentalCoachTab({ player, active }) {
 
         {report ? (
           <div className="stack">
-            {tilt.elapsedMs != null ? (
+            {tilt.elapsedMs != null || tilt.at != null ? (
               <div className="chips">
-                <span className="chip">
-                  generated in {(tilt.elapsedMs / 1000).toFixed(1)}s
-                </span>
+                {tilt.elapsedMs != null ? (
+                  <span className="chip">
+                    generated in {(tilt.elapsedMs / 1000).toFixed(1)}s
+                  </span>
+                ) : null}
+                {/* Mandatory freshness stamp — a hydrated report must never
+                    pass itself off as freshly generated. */}
+                {tilt.at != null ? (
+                  <span className="chip">generated {relativeDate(tilt.at)}</span>
+                ) : null}
               </div>
             ) : null}
             <TiltMeter score={report.tilt_score} level={report.tilt_level} />
@@ -437,10 +485,22 @@ export default function MentalCoachTab({ player, active }) {
             aria-label="Coach conversation"
           >
             {messages.length === 0 ? (
-              <p className="muted chat-hint">
-                Ask anything — “why do I keep losing on Icebox?”, “should I keep
-                queueing tonight?”, “help me reset after that game”.
-              </p>
+              <div className="chat-hint chat-starters">
+                <p className="muted">Ask anything, or start with one of these:</p>
+                <div className="chips">
+                  {STARTERS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className="chip chip-btn"
+                      onClick={() => send(s)}
+                      disabled={sending}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ) : (
               messages.map((m, i) => (
                 <div key={i} className={`chat-msg ${m.role}`}>
@@ -468,7 +528,7 @@ export default function MentalCoachTab({ player, active }) {
             ) : null}
           </div>
           {chatError ? <ErrorBanner message={chatError} /> : null}
-          <form className="chat-input" onSubmit={sendMessage}>
+          <form className="chat-input" onSubmit={handleChatSubmit}>
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}

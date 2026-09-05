@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  RECENT_PLAYERS_MAX,
+  addRecentPlayer,
   buildShareUrl,
   parseDate,
+  parseRecentPlayers,
   parseShareParams,
   splitParagraphs,
   stripMarkdown,
@@ -133,6 +136,109 @@ describe("buildShareUrl", () => {
     const url = buildShareUrl({ name: "A", tag: "B", region: "na" }, null);
     expect(url).not.toContain("#");
     expect(url).toContain("%23");
+  });
+});
+
+describe("addRecentPlayer", () => {
+  const jett = { name: "Jett", tag: "1234", region: "eu" };
+
+  it("unshifts the newest player", () => {
+    const list = addRecentPlayer([{ name: "Sage", tag: "1", region: "na" }], jett);
+    expect(list.map((p) => p.name)).toEqual(["Jett", "Sage"]);
+  });
+
+  it("dedupes by playerKey and moves the hit to the front", () => {
+    const start = [
+      { name: "Sage", tag: "1", region: "na" },
+      { name: "Jett", tag: "1234", region: "eu" },
+    ];
+    const list = addRecentPlayer(start, jett);
+    expect(list).toHaveLength(2);
+    expect(list[0].name).toBe("Jett");
+  });
+
+  it("dedupe is case-insensitive but region-aware", () => {
+    const start = [{ name: "JETT", tag: "1234", region: "eu" }];
+    expect(addRecentPlayer(start, jett)).toHaveLength(1);
+    // Same Riot ID on another region is a distinct entry.
+    expect(
+      addRecentPlayer(start, { ...jett, region: "na" }),
+    ).toHaveLength(2);
+  });
+
+  it("caps the list", () => {
+    let list = [];
+    for (let i = 0; i < RECENT_PLAYERS_MAX + 3; i++) {
+      list = addRecentPlayer(list, { name: `P${i}`, tag: "1", region: "na" });
+    }
+    expect(list).toHaveLength(RECENT_PLAYERS_MAX);
+    // Newest first; the oldest fell off the end.
+    expect(list[0].name).toBe(`P${RECENT_PLAYERS_MAX + 2}`);
+  });
+
+  it("ignores invalid players and tolerates a non-array list", () => {
+    const start = [jett];
+    expect(addRecentPlayer(start, null)).toBe(start);
+    expect(addRecentPlayer(start, { name: "NoTag" })).toBe(start);
+    expect(addRecentPlayer(start, { name: "  ", tag: "1" })).toBe(start);
+    expect(addRecentPlayer("garbage", jett)).toEqual([jett]);
+  });
+
+  it("normalizes an unknown region to na", () => {
+    const [p] = addRecentPlayer([], { name: "A", tag: "B", region: "mars" });
+    expect(p.region).toBe("na");
+  });
+});
+
+describe("parseRecentPlayers", () => {
+  it("parses a valid stored list", () => {
+    const raw = JSON.stringify([
+      { name: "Jett", tag: "1234", region: "eu" },
+      { name: "Sage", tag: "1", region: "na" },
+    ]);
+    expect(parseRecentPlayers(raw)).toEqual([
+      { name: "Jett", tag: "1234", region: "eu" },
+      { name: "Sage", tag: "1", region: "na" },
+    ]);
+  });
+
+  it("drops invalid entries and defaults bad regions — like loadSavedPlayer", () => {
+    const raw = JSON.stringify([
+      { name: "Jett", tag: "1234", region: "mars" },
+      { name: "", tag: "1" },
+      { tag: "no-name" },
+      "not an object",
+      null,
+    ]);
+    expect(parseRecentPlayers(raw)).toEqual([
+      { name: "Jett", tag: "1234", region: "na" },
+    ]);
+  });
+
+  it("dedupes tampered duplicates on read", () => {
+    const raw = JSON.stringify([
+      { name: "Jett", tag: "1234", region: "eu" },
+      { name: "JETT", tag: "1234", region: "eu" },
+    ]);
+    expect(parseRecentPlayers(raw)).toHaveLength(1);
+  });
+
+  it("caps an oversized stored list on read", () => {
+    const raw = JSON.stringify(
+      Array.from({ length: 20 }, (_, i) => ({
+        name: `P${i}`,
+        tag: "1",
+        region: "na",
+      })),
+    );
+    expect(parseRecentPlayers(raw)).toHaveLength(RECENT_PLAYERS_MAX);
+  });
+
+  it("returns [] for corrupt JSON, non-arrays and null", () => {
+    expect(parseRecentPlayers("{oops")).toEqual([]);
+    expect(parseRecentPlayers('{"name":"Jett"}')).toEqual([]);
+    expect(parseRecentPlayers(null)).toEqual([]);
+    expect(parseRecentPlayers(undefined)).toEqual([]);
   });
 });
 

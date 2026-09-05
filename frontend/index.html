@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark" />
     <meta
       name="description"
-      content="AI-powered Valorant companion: match analysis, tilt detection, mental coaching and meta Q&A."
+      content="Your AI mental coach for Valorant. Run a tilt check between queues, talk it through with the coach, and get AI match analysis and meta answers — free, no account."
     />
     <!-- Static unfurl card for shared links (Discord/Slack/Twitter). Values are
          the app's own branding — deliberately no Riot marks, and no per-player
@@ -16,7 +16,7 @@
     <meta property="og:title" content="Valorant AI Companion" />
     <meta
       property="og:description"
-      content="AI-powered match analysis, tilt detection, mental coaching and meta Q&A. Share your dashboard with a link."
+      content="Tilt check between queues, an AI mental coach that has seen your recent games, plus match analysis and meta Q&A. Share your dashboard with a link."
     />
     <meta property="og:url" content="https://rebuy.gg/" />
     <meta property="og:image" content="https://rebuy.gg/og-card.png" />
@@ -26,7 +26,7 @@
     <meta name="twitter:title" content="Valorant AI Companion" />
     <meta
       name="twitter:description"
-      content="AI-powered match analysis, tilt detection, mental coaching and meta Q&A."
+      content="Your AI mental coach for Valorant — tilt checks between queues, AI match analysis and meta Q&A."
     />
     <meta name="twitter:image" content="https://rebuy.gg/og-card.png" />
     <link
@@ -42,7 +42,70 @@
     <title>Valorant AI Companion</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Static pre-React hero: this is what crawlers and link previews
+           index. React's createRoot() replaces it wholesale on mount (a swap,
+           not hydration — see src/main.jsx), so no build changes are needed.
+           Styling is self-contained in the <style> below so app-CSS class
+           drift can't silently break it. Game framing only: an AI coach,
+           never therapy claims — and no Riot marks. -->
+      <style>
+        body {
+          margin: 0;
+          background: #0f1923;
+        }
+        #root .boot-hero {
+          max-width: 720px;
+          margin: 0 auto;
+          padding: 56px 20px;
+          font-family: "Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+          font-size: 15px;
+          line-height: 1.6;
+          color: #ece8e1;
+        }
+        #root .boot-hero h1 {
+          margin: 0 0 6px;
+          font-size: 30px;
+          font-style: italic;
+          letter-spacing: 2px;
+          line-height: 1.1;
+          text-transform: uppercase;
+        }
+        #root .boot-hero .boot-tagline {
+          margin: 0 0 18px;
+          color: #ff4655;
+          font-weight: 600;
+        }
+        #root .boot-hero p {
+          margin: 0 0 10px;
+        }
+        #root .boot-hero .boot-fine {
+          color: #9aa7b3;
+          font-size: 13px;
+        }
+      </style>
+      <div class="boot-hero">
+        <h1>Valorant AI Companion</h1>
+        <p class="boot-tagline">
+          Because mechanics only get you so far — your mental gets you the
+          rest of the way.
+        </p>
+        <p>
+          Run a tilt check between queues: a 0–100 read of your last ten
+          competitive matches — loss streaks, KDA and headshot dips, and the
+          maps or agents that tilt you.
+        </p>
+        <p>
+          Talk it through with an AI mental coach that has seen those games,
+          then get coach-style match analysis and meta answers from a curated
+          knowledge base.
+        </p>
+        <p class="boot-fine">
+          Free, no account — just a Riot ID. An AI coach, not a therapist.
+          Not affiliated with or endorsed by Riot Games.
+        </p>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

@@ -205,6 +205,95 @@ img {
   letter-spacing: 1px;
 }
 
+/* ---------- Trust badge (repo + privacy links, under the search) ---------- */
+
+.trust-badge {
+  margin: 10px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.trust-link {
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 3px 10px;
+  letter-spacing: 0.5px;
+  text-decoration: none;
+}
+
+.trust-link:hover {
+  border-color: var(--accent);
+}
+
+.trust-note a {
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.trust-note a:hover {
+  color: var(--text);
+}
+
+/* ---------- Landing hero (no player selected yet) ---------- */
+
+.hero {
+  margin-top: 16px;
+}
+
+.hero-title {
+  margin: 0 0 10px;
+  max-width: 720px;
+  font-family: var(--display);
+  font-size: 34px;
+  font-weight: 400;
+  font-style: italic;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  line-height: 1.1;
+}
+
+.hero-title span {
+  color: var(--accent);
+}
+
+.hero-sub {
+  margin: 0 0 10px;
+  max-width: 680px;
+  font-size: 15px;
+}
+
+.hero-cta {
+  margin: 0;
+  max-width: 680px;
+  font-size: 13px;
+}
+
+/* ---------- Recent players quick switcher ---------- */
+
+.recent-row {
+  margin-top: 10px;
+  align-items: center;
+}
+
+.recent-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.recent-clear {
+  color: var(--muted);
+  border-style: dashed;
+}
+
 /* ---------- Search ---------- */
 
 .search {
@@ -1194,6 +1283,21 @@ img {
   font-size: 13px;
 }
 
+/* Starter-prompt chips shown before the first coach message. */
+.chat-starters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-starters p {
+  margin: 0;
+}
+
+.chat-starters .chips {
+  justify-content: center;
+}
+
 .chat-msg {
   display: flex;
 }
@@ -1572,6 +1676,9 @@ img {
 
 .footer-links {
   margin-top: 8px;
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
 }
 
 .footer-links a {
@@ -1754,5 +1861,9 @@ img {
 
   .panel-title {
     font-size: 22px;
+  }
+
+  .hero-title {
+    font-size: 26px;
   }
 }

@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { analyzeMatches, isCancelled } from "../api.js";
-import { stripMarkdown, splitParagraphs } from "../utils.js";
+import {
+  playerKey,
+  relativeDate,
+  splitParagraphs,
+  stripMarkdown,
+} from "../utils.js";
+import { loadReport, saveReport } from "../reports.js";
 import { Spinner, ErrorBanner, EmptyState } from "./common.jsx";
 import { Insignia } from "./Insignia.jsx";
 import Stopwatch from "./Stopwatch.jsx";
@@ -20,6 +26,13 @@ function MatchCountChip({ n }) {
 function GeneratedChip({ ms }) {
   if (ms == null) return null;
   return <span className="chip">generated in {(ms / 1000).toFixed(1)}s</span>;
+}
+
+// Mandatory freshness stamp — a report hydrated from localStorage must never
+// pass itself off as freshly generated.
+function GeneratedAtChip({ at }) {
+  if (at == null) return null;
+  return <span className="chip">generated {relativeDate(at)}</span>;
 }
 
 function InsigniaList({ kind, label, items, baseDelay = 0, emptyText }) {
@@ -44,7 +57,7 @@ function InsigniaList({ kind, label, items, baseDelay = 0, emptyText }) {
   );
 }
 
-function Report({ analysis, matchCount, elapsedMs }) {
+function Report({ analysis, matchCount, elapsedMs, at }) {
   // Backward-compatible: older backend returned a plain-text analysis.
   if (!analysis || typeof analysis !== "object") {
     return (
@@ -54,6 +67,7 @@ function Report({ analysis, matchCount, elapsedMs }) {
           <div className="chips">
             <MatchCountChip n={matchCount} />
             <GeneratedChip ms={elapsedMs} />
+            <GeneratedAtChip at={at} />
           </div>
         </div>
         <div className="prose">{stripMarkdown(String(analysis ?? ""))}</div>
@@ -75,6 +89,7 @@ function Report({ analysis, matchCount, elapsedMs }) {
           <div className="chips">
             <MatchCountChip n={matchCount} />
             <GeneratedChip ms={elapsedMs} />
+            <GeneratedAtChip at={at} />
           </div>
         </div>
         {overviewParas.length > 0 ? (
@@ -141,12 +156,19 @@ function Report({ analysis, matchCount, elapsedMs }) {
 }
 
 export default function AnalysisTab({ player }) {
-  const [state, setState] = useState({
-    loading: false,
-    error: null,
-    result: null,
-    cancelled: false,
-    elapsedMs: null,
+  const [state, setState] = useState(() => {
+    // Hydrate the last saved analysis for this player — the keyed remount in
+    // App.jsx re-runs this initializer on every player switch. Hydration
+    // fires no analyze_run analytics (tracking lives inside run()).
+    const saved = player ? loadReport("analysis", playerKey(player)) : null;
+    return {
+      loading: false,
+      error: null,
+      result: saved ? saved.result : null,
+      cancelled: false,
+      elapsedMs: null,
+      at: saved ? saved.at : null,
+    };
   });
   const abortRef = useRef(null);
 
@@ -166,6 +188,7 @@ export default function AnalysisTab({ player }) {
       result: null,
       cancelled: false,
       elapsedMs: null,
+      at: null,
     });
     const t0 = performance.now();
     try {
@@ -182,12 +205,14 @@ export default function AnalysisTab({ player }) {
         latency_ms: elapsedMs,
         ok: true,
       });
+      saveReport("analysis", playerKey(player), result);
       setState({
         loading: false,
         error: null,
         result,
         cancelled: false,
         elapsedMs,
+        at: Date.now(),
       });
     } catch (err) {
       // User-initiated cancel (button, unmount) — a gentle state, not an
@@ -199,6 +224,7 @@ export default function AnalysisTab({ player }) {
           result: null,
           cancelled: true,
           elapsedMs: null,
+          at: null,
         });
         return;
       }
@@ -213,6 +239,7 @@ export default function AnalysisTab({ player }) {
         result: null,
         cancelled: false,
         elapsedMs: null,
+        at: null,
       });
     }
   }
@@ -283,6 +310,7 @@ export default function AnalysisTab({ player }) {
           analysis={state.result.analysis}
           matchCount={state.result.match_count}
           elapsedMs={state.elapsedMs}
+          at={state.at}
         />
       ) : null}
     </div>

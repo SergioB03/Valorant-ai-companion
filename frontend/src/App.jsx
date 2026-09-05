@@ -6,7 +6,13 @@ import AnalysisTab from "./components/AnalysisTab.jsx";
 import MentalCoachTab from "./components/MentalCoachTab.jsx";
 import MetaTab from "./components/MetaTab.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
-import { playerKey, parseShareParams, buildShareUrl } from "./utils.js";
+import {
+  playerKey,
+  parseShareParams,
+  buildShareUrl,
+  parseRecentPlayers,
+  addRecentPlayer,
+} from "./utils.js";
 import { track, trackSessionStart } from "./analytics.js";
 import { useGSAP, revealIn, motionOK, canHover } from "./anim.js";
 
@@ -17,6 +23,8 @@ const ScrambledText = lazy(
 );
 
 const STORAGE_KEY = "vac:last-player";
+const RECENT_KEY = "vac:recent-players";
+const REPO_URL = "https://github.com/SergioB03/Valorant-ai-companion";
 
 // Shareable URLs: ?player=Name%23TAG&region=eu&tab=analysis. Parsed once at
 // load; URL params win over the saved-player fallback. A URL-supplied player
@@ -33,10 +41,14 @@ const FOOTER_TEXT =
 // `short` is shown on narrow screens. Without it "Performance Analysis" pushes
 // the last two tabs off a phone screen — the bar scrolls, but nothing signals
 // that, so half the app looked missing.
+// Mental Coach sits right after Dashboard — it's the positioning pillar
+// (see docs/GROWTH-FEATURES.md #2). The default tab is still "dashboard", so
+// INITIAL_SHARE / buildShareUrl need no changes; utils.js TAB_IDS mirrors
+// this order.
 const TABS = [
   { id: "dashboard", label: "Dashboard", short: "Stats" },
-  { id: "analysis", label: "Performance Analysis", short: "Analysis" },
   { id: "mental", label: "Mental Coach", short: "Coach" },
+  { id: "analysis", label: "Performance Analysis", short: "Analysis" },
   { id: "meta", label: "Meta Q&A", short: "Meta" },
 ];
 
@@ -54,10 +66,20 @@ function loadSavedPlayer() {
   return null;
 }
 
+function loadRecentPlayers() {
+  try {
+    return parseRecentPlayers(localStorage.getItem(RECENT_KEY));
+  } catch {
+    /* storage blocked — start empty */
+  }
+  return [];
+}
+
 export default function App() {
   const [player, setPlayer] = useState(
     () => INITIAL_SHARE.player || loadSavedPlayer(),
   );
+  const [recent, setRecent] = useState(loadRecentPlayers);
   const [tab, setTab] = useState(INITIAL_SHARE.tab || "dashboard");
   const mountTracked = useRef(false);
   const mainRef = useRef(null);
@@ -123,12 +145,31 @@ export default function App() {
     tabRefs.current[id]?.focus();
   }
 
+  // Active searches (and recent-chip taps) only. Wave 2's demo sentinel must
+  // never come through here — this writes real-player state (vac:last-player,
+  // vac:recent-players). Riot IDs never go into analytics events either.
   function handleSearch(next) {
     setPlayer(next);
+    const nextRecent = addRecentPlayer(recent, next);
+    setRecent(nextRecent);
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(nextRecent));
+    } catch {
+      /* storage full/blocked — non-fatal */
+    }
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {
       /* storage full/blocked — non-fatal */
+    }
+  }
+
+  function clearRecent() {
+    setRecent([]);
+    try {
+      localStorage.removeItem(RECENT_KEY);
+    } catch {
+      /* storage blocked — non-fatal */
     }
   }
 
@@ -150,8 +191,30 @@ export default function App() {
             Valorant <span>AI Companion</span>
           </h1>
         </div>
-        <PlayerSearch initial={player} onSearch={handleSearch} />
+        {/* Keyed so a recent-player chip tap re-seeds the form — PlayerSearch
+            initializes its fields from `initial` on mount only. */}
+        <PlayerSearch
+          key={playerKey(player)}
+          initial={player}
+          onSearch={handleSearch}
+        />
       </header>
+
+      {/* Factual trust badge — links the repo and the privacy page. */}
+      <p className="trust-badge">
+        <a
+          className="trust-link"
+          href={REPO_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Open source · privacy-first
+        </a>
+        <span className="trust-note">
+          no accounts, no cookies, DNT honored —{" "}
+          <a href="/privacy.html">details</a>
+        </span>
+      </p>
 
       {player ? (
         <p className="tracking-line">
@@ -163,11 +226,53 @@ export default function App() {
           <span className="region-chip">{player.region.toUpperCase()}</span>
         </p>
       ) : (
-        <p className="tracking-line muted">
-          No player selected — enter a Riot ID above (in-game name plus #tag,
-          e.g. Jett#1234), pick the account&apos;s region and hit Track.
-        </p>
+        /* Landing hero — mental-game positioning instead of the old
+           "No player selected" dead end. Wave 2's demo-player CTA lands in
+           this section. Game framing only: an AI coach, never therapy. */
+        <section className="panel hero rise" aria-labelledby="hero-title">
+          <h2 className="hero-title" id="hero-title">
+            Mechanics only get you so far —{" "}
+            <span>your mental gets you the rest of the way</span>
+          </h2>
+          <p className="hero-sub">
+            Run a <strong>tilt check</strong> between queues — a 0–100 read of
+            your last ten competitive matches: loss streaks, KDA and headshot
+            dips, and the maps or agents that tilt you. Then talk it through
+            with an <strong>AI mental coach</strong> that has seen those games,
+            and get coach-style match analysis and meta answers on the side.
+          </p>
+          <p className="hero-cta muted">
+            Enter a Riot ID above (in-game name plus #tag, e.g. Jett#1234),
+            pick the account&apos;s region and hit Track. Free, no account —
+            and not affiliated with or endorsed by Riot Games.
+          </p>
+        </section>
       )}
+
+      {recent.length > 0 ? (
+        <div className="chips recent-row" role="group" aria-label="Recent players">
+          <span className="recent-label">Recent</span>
+          {recent.map((p) => (
+            <button
+              key={playerKey(p)}
+              type="button"
+              className="chip chip-btn"
+              onClick={() => handleSearch(p)}
+              aria-label={`Track ${p.name}#${p.tag} (${p.region.toUpperCase()})`}
+            >
+              {p.name}
+              <span className="tag">#{p.tag}</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            className="chip chip-btn recent-clear"
+            onClick={clearRecent}
+          >
+            Clear recent
+          </button>
+        </div>
+      ) : null}
 
       <nav className="tabs" role="tablist" aria-label="Sections">
         {TABS.map((t) => (
@@ -218,18 +323,6 @@ export default function App() {
           <div
             data-panel=""
             role="tabpanel"
-            id="panel-analysis"
-            aria-labelledby="tab-analysis"
-            tabIndex={-1}
-            hidden={tab !== "analysis"}
-          >
-            <ErrorBoundary label="The performance analysis">
-              <AnalysisTab player={player} />
-            </ErrorBoundary>
-          </div>
-          <div
-            data-panel=""
-            role="tabpanel"
             id="panel-mental"
             aria-labelledby="tab-mental"
             tabIndex={-1}
@@ -237,6 +330,18 @@ export default function App() {
           >
             <ErrorBoundary label="The mental coach">
               <MentalCoachTab player={player} active={tab === "mental"} />
+            </ErrorBoundary>
+          </div>
+          <div
+            data-panel=""
+            role="tabpanel"
+            id="panel-analysis"
+            aria-labelledby="tab-analysis"
+            tabIndex={-1}
+            hidden={tab !== "analysis"}
+          >
+            <ErrorBoundary label="The performance analysis">
+              <AnalysisTab player={player} />
             </ErrorBoundary>
           </div>
         </div>
@@ -267,8 +372,11 @@ export default function App() {
         ) : (
           FOOTER_TEXT
         )}
-        <nav className="footer-links" aria-label="Legal">
+        <nav className="footer-links" aria-label="About">
           <a href="/privacy.html">Privacy &amp; analytics</a>
+          <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
+            GitHub
+          </a>
         </nav>
       </footer>
     </div>

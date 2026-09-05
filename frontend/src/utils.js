@@ -22,7 +22,7 @@ export function playerKey(player) {
 export const REGIONS = ["na", "eu", "ap", "kr"];
 
 // Must match the tab ids in App.jsx's TABS.
-export const TAB_IDS = ["dashboard", "analysis", "mental", "meta"];
+export const TAB_IDS = ["dashboard", "mental", "analysis", "meta"];
 
 /**
  * Parse the shareable-URL query string (?player=Name%23TAG&region=eu&tab=meta)
@@ -74,6 +74,62 @@ export function buildShareUrl(player, tab) {
   }
   const qs = params.toString();
   return qs ? `/?${qs}` : "/";
+}
+
+// ---------- Recent-players quick switcher (pure list ops) ----------
+// Storage IO lives in App.jsx (vac:recent-players); these stay pure so the
+// dedupe/cap/validate rules are unit-testable without a DOM.
+
+export const RECENT_PLAYERS_MAX = 5;
+
+// Same defensive posture as loadSavedPlayer(): a usable entry needs a
+// non-empty name and tag; unknown regions fall back to "na".
+function sanitizeRecentPlayer(p) {
+  if (!p || typeof p.name !== "string" || typeof p.tag !== "string") return null;
+  const name = p.name.trim();
+  const tag = p.tag.trim();
+  if (!name || !tag) return null;
+  return { name, tag, region: REGIONS.includes(p.region) ? p.region : "na" };
+}
+
+/**
+ * Parse the raw localStorage value into a validated, deduped, capped list.
+ * Anything malformed (corrupt JSON, non-arrays, junk entries) degrades to
+ * dropping the bad parts — never a throw.
+ */
+export function parseRecentPlayers(raw) {
+  let list;
+  try {
+    list = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const item of list) {
+    const entry = sanitizeRecentPlayer(item);
+    if (!entry) continue;
+    const key = playerKey(entry);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(entry);
+    if (out.length >= RECENT_PLAYERS_MAX) break;
+  }
+  return out;
+}
+
+/**
+ * Return a new list with `player` moved/added to the front, deduped by
+ * playerKey (case-insensitive, region-aware) and capped. Invalid players
+ * leave the list untouched.
+ */
+export function addRecentPlayer(list, player, cap = RECENT_PLAYERS_MAX) {
+  const base = Array.isArray(list) ? list : [];
+  const entry = sanitizeRecentPlayer(player);
+  if (!entry) return base;
+  const key = playerKey(entry);
+  return [entry, ...base.filter((p) => playerKey(p) !== key)].slice(0, cap);
 }
 
 const SQLITE_RE = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/;

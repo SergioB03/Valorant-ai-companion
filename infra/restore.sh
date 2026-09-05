@@ -84,7 +84,12 @@ echo "==> Backup object: s3://$BUCKET/$KEY"
 # ---- 2. Download + decompress + verify
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/vac-restore.XXXXXX")
 echo "==> Working dir: $WORK"
-aws s3 cp "s3://$BUCKET/$KEY" "$WORK/backup.sqlite3.gz" --only-show-errors
+# aws.exe is a native Windows program: with path conversion disabled above (to
+# protect s3:// and /vac/* args) it would treat an MSYS /tmp path as C:\tmp.
+# Give aws a Windows-native path on Git Bash; bash-side tools keep using $WORK.
+AWS_WORK=$WORK
+command -v cygpath >/dev/null 2>&1 && AWS_WORK=$(cygpath -w "$WORK")
+aws s3 cp "s3://$BUCKET/$KEY" "$AWS_WORK/backup.sqlite3.gz" --only-show-errors
 gzip -dc "$WORK/backup.sqlite3.gz" > "$WORK/$DB_NAME"
 
 echo "==> Integrity check + row counts"

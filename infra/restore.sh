@@ -93,16 +93,16 @@ echo "==> Backup object: s3://$BUCKET/$KEY"
 # ---- 2. Download + decompress + verify
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/vac-restore.XXXXXX")
 echo "==> Working dir: $WORK"
-# aws.exe is a native Windows program: with path conversion disabled above (to
-# protect s3:// and /vac/* args) it would treat an MSYS /tmp path as C:\tmp.
-# Give aws a Windows-native path on Git Bash; bash-side tools keep using $WORK.
-AWS_WORK=$WORK
-command -v cygpath >/dev/null 2>&1 && AWS_WORK=$(cygpath -w "$WORK")
-aws s3 cp "s3://$BUCKET/$KEY" "$AWS_WORK/backup.sqlite3.gz" --only-show-errors
+# Native Windows programs (aws.exe, the venv python.exe) don't understand MSYS
+# /tmp paths, and path conversion is disabled above to protect s3:// and /vac/*
+# args. Hand every NATIVE tool $NATIVE_WORK; bash-side tools keep using $WORK.
+NATIVE_WORK=$WORK
+command -v cygpath >/dev/null 2>&1 && NATIVE_WORK=$(cygpath -w "$WORK")
+aws s3 cp "s3://$BUCKET/$KEY" "$NATIVE_WORK/backup.sqlite3.gz" --only-show-errors
 gzip -dc "$WORK/backup.sqlite3.gz" > "$WORK/$DB_NAME"
 
 echo "==> Integrity check + row counts"
-"$PY" - "$WORK/$DB_NAME" <<'PYEOF'
+"$PY" - "$NATIVE_WORK/$DB_NAME" <<'PYEOF'
 import sqlite3, sys
 db = sqlite3.connect(sys.argv[1])
 ok = db.execute("PRAGMA integrity_check").fetchone()[0]

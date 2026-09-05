@@ -20,12 +20,25 @@ export default [
       // Components referenced only from JSX aren't visible to core
       // no-unused-vars — same convention as the official Vite React template.
       "no-unused-vars": ["error", { varsIgnorePattern: "^[A-Z_]" }],
+      // ESLint 10's recommended set added preserve-caught-error, which wants
+      // `cause:` threaded onto rethrown errors. That is an app-behavior
+      // change, not lint glue — keep the pre-10 posture for the toolchain
+      // bump and adopt the rule deliberately later if wanted.
+      "preserve-caught-error": "off",
     },
   },
   {
     files: ["**/*.jsx"],
     plugins: { "react-hooks": reactHooks },
-    rules: { ...reactHooks.configs.recommended.rules },
+    // eslint-plugin-react-hooks 7's `recommended` preset also turns on the
+    // React Compiler-powered rules (purity, set-state-in-effect, …), which
+    // flag existing app code. Pin the two classic rules at their
+    // long-standing levels; adopting the compiler rules is an app-code
+    // migration to do deliberately, not inside a toolchain bump.
+    rules: {
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
+    },
   },
   {
     // Node contexts: the asset pipeline scripts and the Vite/Vitest configs.

@@ -11,19 +11,24 @@ priced from the table below. It will not match the invoice to the cent — it is
 a circuit breaker, not an accounting system. Set the authoritative limit in the
 Anthropic console too; that one no bug of ours can defeat.
 
-State lives in the same SQLite file as everything else, so this adds no
-infrastructure and survives restarts. On a single instance that is sufficient;
-running more than one would need a shared counter.
+Where the counters live is decided by app/budget_store.py: SQLite by default,
+DynamoDB when BUDGET_TABLE_NAME is set. SQLite is correct on one instance and
+silently wrong on two -- each would hold its own total, so the cap would
+multiply by the instance count, and a deploy onto fresh storage would reset the
+day's spend to zero. The shared store is what makes more than one instance safe.
+
+Both check functions fail *closed*: if the counters cannot be read we cannot
+prove we are under the ceiling, and a brief 503 is cheaper than an unbounded
+bill.
 """
 
 import hashlib
 import logging
 import os
-import threading
 from datetime import datetime, timezone
 
 from app.alerts import DOWN, notify_alert
-from app.db import get_conn
+from app.budget_store import get_store
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +44,6 @@ _PRICES = {
 # Unknown model ids fall back to the most expensive rate we know, so a typo in
 # CLAUDE_MODEL can never make the breaker *under*-count.
 _FALLBACK_PRICE = (10.0, 50.0)
-
-_lock = threading.Lock()
 
 
 class BudgetExceeded(Exception):
@@ -64,14 +67,7 @@ def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> floa
 
 
 def spent_today() -> float:
-    conn = get_conn()
-    try:
-        row = conn.execute(
-            "SELECT cost_usd FROM claude_spend WHERE day = ?", (_today(),)
-        ).fetchone()
-        return float(row["cost_usd"]) if row else 0.0
-    finally:
-        conn.close()
+    return get_store().spent_today(_today())
 
 
 def check_budget() -> None:
@@ -79,7 +75,21 @@ def check_budget() -> None:
     budget = daily_budget_usd()
     if budget <= 0:
         return  # 0 or negative disables the breaker
-    spent = spent_today()
+    try:
+        spent = spent_today()
+    except Exception as exc:
+        # Cannot read the counter => cannot prove we are under budget. Refusing
+        # is recoverable; an unbounded bill is not.
+        logger.exception("budget counter unreadable - refusing the call")
+        notify_alert(
+            "🛑 Budget counter unreadable — AI features are OFF",
+            "The spend counter could not be read, so Claude-backed endpoints "
+            "are returning 503 rather than risk spending past the cap blind.",
+            key="budget:store-down",
+            window=3600,
+            color=DOWN,
+        )
+        raise BudgetExceeded("spend counter unavailable") from exc
     if spent >= budget:
         logger.warning("Daily Claude budget reached: $%.4f of $%.2f", spent, budget)
         notify_alert(
@@ -133,56 +143,37 @@ def check_ip_quota(ip: str) -> None:
     quota = daily_ip_quota()
     if quota <= 0:
         return
-    conn = get_conn()
     try:
-        row = conn.execute(
-            "SELECT calls FROM ip_usage WHERE day = ? AND ip_key = ?",
-            (_today(), _ip_key(ip)),
-        ).fetchone()
-    finally:
-        conn.close()
-    if row and int(row["calls"]) >= quota:
+        calls = get_store().ip_calls(_today(), _ip_key(ip))
+    except Exception as exc:
+        # Same reasoning as check_budget: unreadable counters mean we cannot
+        # show this caller is within their share.
+        logger.exception("per-source counter unreadable - refusing the call")
+        raise QuotaExceeded("usage counter unavailable") from exc
+    if calls >= quota:
         raise QuotaExceeded(f"daily limit of {quota} AI actions reached")
 
 
 def record_ip_use(ip: str) -> None:
-    day, key = _today(), _ip_key(ip)
-    with _lock:
-        conn = get_conn()
-        try:
-            with conn:
-                conn.execute(
-                    "INSERT INTO ip_usage (day, ip_key, calls) VALUES (?, ?, 1) "
-                    "ON CONFLICT(day, ip_key) DO UPDATE SET calls = calls + 1",
-                    (day, key),
-                )
-                # Yesterday's rows are dead weight; drop them opportunistically
-                # so this table cannot grow without bound under IP rotation.
-                conn.execute("DELETE FROM ip_usage WHERE day < ?", (day,))
-        finally:
-            conn.close()
+    try:
+        get_store().record_ip(_today(), _ip_key(ip))
+    except Exception:
+        # Bookkeeping must not fail a request that already succeeded. The
+        # global ceiling is the control that actually bounds the bill.
+        logger.warning("could not record per-source usage", exc_info=True)
 
 
 def record_spend(model: str, input_tokens: int, output_tokens: int) -> float:
     """Add one call's estimated cost to today's total. Returns the new total."""
     cost = estimate_cost_usd(model, input_tokens, output_tokens)
-    day = _today()
-    with _lock:
-        conn = get_conn()
-        try:
-            with conn:
-                conn.execute(
-                    "INSERT INTO claude_spend (day, cost_usd, calls) VALUES (?, ?, 1) "
-                    "ON CONFLICT(day) DO UPDATE SET "
-                    "cost_usd = cost_usd + excluded.cost_usd, calls = calls + 1",
-                    (day, cost),
-                )
-                row = conn.execute(
-                    "SELECT cost_usd FROM claude_spend WHERE day = ?", (day,)
-                ).fetchone()
-        finally:
-            conn.close()
-    total = float(row["cost_usd"]) if row else cost
+    try:
+        total = get_store().add_spend(_today(), cost)
+    except Exception:
+        # The call already happened and the money is already spent. Losing the
+        # record is bad -- it under-counts the day -- but raising here would
+        # turn a successful response into an error for the user as well.
+        logger.exception("could not record spend - the day's total is now low")
+        return cost
     budget = daily_budget_usd()
     # Warn while there is still headroom, so the operator hears about it before
     # users start seeing 503s.

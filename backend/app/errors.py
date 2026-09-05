@@ -30,14 +30,14 @@ def upstream_to_http(e: Exception, context: str = "request") -> HTTPException:
                 "HenrikDev returned "
                 f"**{code}** — the key is expired, revoked or wrong.\n\n"
                 "Dashboard, match analysis and tilt check are down until it is "
-                "replaced: `aws ssm put-parameter --name /vac/RIOT_API_KEY "
+                "replaced: `aws ssm put-parameter --name /vac/HENRIK_API_KEY "
                 "--type SecureString --overwrite --value <new key>`, then "
                 "redeploy.",
                 key="upstream:auth",
                 window=6 * 3600,
                 color=DOWN,
             )
-            return HTTPException(502, "The Riot data provider rejected our API key. Check RIOT_API_KEY (HenrikDev key).")
+            return HTTPException(502, "The match data provider rejected our API key. Check HENRIK_API_KEY.")
         if code == 404:
             return HTTPException(404, "Player not found. Check the name, tag, and region.")
         if code == 429:

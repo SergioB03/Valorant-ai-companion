@@ -72,3 +72,12 @@ logs/
 # INFRA SCRATCH
 # ========================
 .add-domain.*
+
+# ========================
+# CLAUDE CODE
+# ========================
+# Per-developer settings (tool permissions, local overrides). A shared
+# .claude/settings.json is deliberately still committable, so project-wide
+# config can live in the repo while personal preferences do not.
+.claude/settings.local.json
+.claude/*.local.json

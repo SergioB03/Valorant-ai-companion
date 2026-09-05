@@ -68,7 +68,7 @@ Each of these is scripted in `infra/` but must be **run by the operator** from a
 |---|---|---|---|
 | 1 | Arm production config: `/vac/ENVIRONMENT=production` (turns on HSTS + the CORS-wildcard refusal) and copy `/vac/RIOT_API_KEY` → `/vac/HENRIK_API_KEY` (the old parameter is **not** deleted here) | `infra/arm-production.sh` | pending — run it |
 | 2 | Grant the instance role `s3:GetObject` on `companion/*` so `infra/restore.sh` can pull backups on the box | re-run `infra/bootstrap.sh` (idempotent; the policy now includes it) | pending |
-| 3 | Restore drill: prove the backups actually restore, record the row counts below | `infra/restore.sh --drill` | **pending — run `infra/restore.sh --drill`** |
+| 3 | Restore drill: prove the backups actually restore, record the row counts below | `infra/restore.sh --drill` | **done 2026-09-05** — integrity ok; analytics_events 341, claude_spend 2, coach_sessions 0, ip_usage 1, tilt_snapshots 1 (operator laptop, Git Bash; three Windows path/interpreter bugs found and fixed in rounds 1-3) |
 | 4 | CloudWatch alarms: instance status-check → email, system status-check → email + EC2 auto-recover | `infra/ec2-alarms.sh you@example.com` (confirm the SNS email!) | pending |
 | 5 | Money guardrails: $20/month AWS Budget (50/80% actual + 100% forecast alerts) + Cost Anomaly Detection ($5 threshold, daily email) | `infra/cost-guardrails.sh you@example.com` | pending |
 | 6 | Anthropic console monthly spend cap — the one guardrail no bug of ours can defeat (budget.py's docstring has been asking for it) | console.anthropic.com → Billing → Limits (no API for this) | pending — user step |
@@ -118,7 +118,7 @@ The `*.cloudfront.net` URL keeps working alongside the domain.
 | Back up SQLite | on the box: `sudo /opt/vac/infra/backup.sh` — uses SQLite's backup API against the live WAL-mode db (a plain `cp`/`compose cp` can capture a torn copy), verifies integrity, uploads to S3, pings the dead-man check |
 | Backup timer status | on the box: `systemctl list-timers vac-backup.timer` (nightly 07:15 UTC; `Persistent=true` re-runs a missed one at boot) |
 | Watchdog status | on the box: `systemctl list-timers vac-watchdog.timer` — every 5 min `infra/disk-watch.sh` alerts Discord at >85% disk and restarts unhealthy containers |
-| Restore SQLite | on the box: `sudo /opt/vac/infra/restore.sh` (backs up current state first, verifies the download, swaps the db with stale `-wal`/`-shm` removed, health-checks). Drill without touching prod: `infra/restore.sh --drill` — **drill status: pending, not yet executed; record the measured RTO here after the first run** |
+| Restore SQLite | on the box: `sudo /opt/vac/infra/restore.sh` (backs up current state first, verifies the download, swaps the db with stale `-wal`/`-shm` removed, health-checks). Drill without touching prod: `infra/restore.sh --drill` — **drill status: PASSED 2026-09-05** (download + integrity + row counts verified from an operator laptop; on-box full-restore RTO still to be measured during the first real restore or a maintenance window) |
 | Roll back a bad deploy | `git revert <sha> && git push` — the only rollback path: `deploy.sh` does `git reset --hard origin/main`, so reverting the commit and pushing redeploys the previous code |
 | Stop paying | `aws ec2 stop-instances --instance-ids <id>` (EBS + Elastic IP still bill a few $/mo); to remove everything, delete in reverse: CloudFront distribution, instance, Elastic IP, security group, IAM roles, `/vac/*` parameters, SNS topic + CloudWatch alarms, the AWS Budget + anomaly monitor |
 

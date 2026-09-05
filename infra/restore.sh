@@ -50,10 +50,19 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-# Windows/Git Bash note: bare `python` may be the MS Store stub — point PYTHON
-# at a real interpreter (e.g. backend/venv/Scripts/python.exe) for a local drill.
-PY=${PYTHON:-$(command -v python3 || command -v python)}
-[ -n "$PY" ] || { echo "python3 not found — needed for the integrity check (set PYTHON=...)"; exit 1; }
+# Interpreter for the integrity check. Prefer the repo venv (on Windows the bare
+# `python` on PATH is often the MS Store stub, which prints an install nag and
+# exits non-zero), and PROVE the pick actually runs before trusting it.
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+PY=""
+for candidate in "${PYTHON:-}" \
+    "$SCRIPT_DIR/../backend/venv/Scripts/python.exe" \
+    "$SCRIPT_DIR/../backend/venv/bin/python" \
+    python3 python; do
+  [ -n "$candidate" ] || continue
+  if "$candidate" -c 'import sys' >/dev/null 2>&1; then PY=$candidate; break; fi
+done
+[ -n "$PY" ] || { echo "No working python found — needed for the integrity check (set PYTHON=...)"; exit 1; }
 
 # Region: instance metadata when on the box, else whatever the CLI session has.
 if [ -z "${AWS_DEFAULT_REGION:-}" ] && [ -z "${AWS_REGION:-}" ]; then

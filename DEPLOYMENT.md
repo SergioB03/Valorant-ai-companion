@@ -51,19 +51,40 @@ Knobs (env vars): `INSTANCE_TYPE` (default `t3.small`, ≈$15/mo; the API idles 
 
 [.github/workflows/deploy.yml](.github/workflows/deploy.yml) runs on every push to `main` (or manually: `gh workflow run deploy.yml`):
 
-1. assume the `vac-github-deploy` role via OIDC;
-2. `aws ssm send-command` → the box runs [infra/deploy.sh](infra/deploy.sh): refresh `backend/.env` from Parameter Store, `git reset --hard origin/main`, `docker compose up -d --build`, wait for `/api/`;
-3. invalidate the CloudFront cache;
-4. smoke-test `/api/` and `/api/meta/status` through CloudFront.
+1. **CI gates first** — the `deploy` job declares `needs:` on three check jobs: `lint` (ruff), `test` (backend pytest), and `frontend` (`npm ci`, `npm run lint`, `npm run test -- --run`, `npm run build`). A red suite no longer ships. The same checks run on pull requests via [lint.yml](.github/workflows/lint.yml).
+2. assume the `vac-github-deploy` role via OIDC;
+3. `aws ssm send-command` → the box runs [infra/deploy.sh](infra/deploy.sh): refresh `backend/.env` from Parameter Store, `git reset --hard origin/main`, `docker compose up -d --build`, wait for `/api/health`;
+4. invalidate the CloudFront cache;
+5. smoke-test `/api/health/ready` through CloudFront — this returns **503 when a required key is missing from SSM**, so a misconfigured deploy fails the pipeline instead of quietly serving 502s.
 
-Expect 3–5 minutes; the backend image rebuild is most of it. There's a few seconds of downtime while the `api` container is replaced.
+Expect 4–6 minutes; the backend image rebuild is most of it. There's a few seconds of downtime while the `api` container is replaced.
+
+### Pre-deploy checklist (one-time AWS/console steps)
+
+Each of these is scripted in `infra/` but must be **run by the operator** from an
+`aws login` session (none run automatically; all are idempotent):
+
+| # | Step | How | Status |
+|---|---|---|---|
+| 1 | Arm production config: `/vac/ENVIRONMENT=production` (turns on HSTS + the CORS-wildcard refusal) and copy `/vac/RIOT_API_KEY` → `/vac/HENRIK_API_KEY` (the old parameter is **not** deleted here) | `infra/arm-production.sh` | pending — run it |
+| 2 | Grant the instance role `s3:GetObject` on `companion/*` so `infra/restore.sh` can pull backups on the box | re-run `infra/bootstrap.sh` (idempotent; the policy now includes it) | pending |
+| 3 | Restore drill: prove the backups actually restore, record the row counts below | `infra/restore.sh --drill` | **pending — run `infra/restore.sh --drill`** |
+| 4 | CloudWatch alarms: instance status-check → email, system status-check → email + EC2 auto-recover | `infra/ec2-alarms.sh you@example.com` (confirm the SNS email!) | pending |
+| 5 | Money guardrails: $20/month AWS Budget (50/80% actual + 100% forecast alerts) + Cost Anomaly Detection ($5 threshold, daily email) | `infra/cost-guardrails.sh you@example.com` | pending |
+| 6 | Anthropic console monthly spend cap — the one guardrail no bug of ours can defeat (budget.py's docstring has been asking for it) | console.anthropic.com → Billing → Limits (no API for this) | pending — user step |
+| 7 | Backup dead-man switch: create a free [healthchecks.io](https://healthchecks.io) check (native Discord integration), then `aws ssm put-parameter --name /vac/HEALTHCHECK_URL --type String --value "https://hc-ping.com/<uuid>"` — `infra/backup.sh` pings it after every successful upload; a silent backup failure alerts within a day | healthchecks.io + one SSM parameter | pending — user step |
+| 8 | Outside-in uptime monitor: a free [UptimeRobot](https://uptimerobot.com) (or Better Stack) HTTP monitor on `https://rebuy.gg/api/health`. **Never bare `/health`** — the Caddyfile's SPA fallback answers 200 with index.html while the API is dead, and `/api/*` is the CloudFront behavior with caching disabled, so no CDN cache can mask an outage. Wire its alert contact to the existing Discord webhook channel | uptimerobot.com | pending — user step |
+
+**Post-deploy (after step 1 + a verified deploy):** check `curl -s https://rebuy.gg/api/health/ready` shows `"environment": "production"`, then retire the legacy key name: `aws ssm delete-parameter --name /vac/RIOT_API_KEY` (and later remove the fallback in `riot_service.py`).
 
 ### Changing a secret
 
 ```bash
-aws ssm put-parameter --name /vac/RIOT_API_KEY --type SecureString --overwrite --value "HDEV-..."
+aws ssm put-parameter --name /vac/HENRIK_API_KEY --type SecureString --overwrite --value "HDEV-..."
 gh workflow run deploy.yml      # or push anything
 ```
+
+(`/vac/RIOT_API_KEY` is the legacy name for the same key — still honored as a fallback until the post-deploy cleanup in the checklist above deletes it.)
 
 ## 3. Custom domain — `infra/add-domain.sh`
 
@@ -91,10 +112,17 @@ The `*.cloudfront.net` URL keeps working alongside the domain.
 | App logs | on the box: `cd /opt/vac && sudo docker compose logs -f api` |
 | First-boot log | on the box: `sudo cat /var/log/vac-bootstrap.log` |
 | Redeploy manually | on the box: `sudo /opt/vac/infra/deploy.sh` — or `gh workflow run deploy.yml` |
+| Health / readiness | `curl https://<url>/api/health` (liveness) · `curl https://<url>/api/health/ready` (503 when a required key is missing) |
 | RAG index status | `curl https://<url>/api/meta/status` |
 | Analytics summary | `curl -H "X-Admin-Token: <token>" https://<url>/api/analytics/summary` |
-| Back up SQLite | on the box: `sudo docker compose cp api:/app/state/companion.sqlite3 ./backup.sqlite3` |
-| Stop paying | `aws ec2 stop-instances --instance-ids <id>` (EBS + Elastic IP still bill a few $/mo); to remove everything, delete in reverse: CloudFront distribution, instance, Elastic IP, security group, IAM roles, `/vac/*` parameters |
+| Back up SQLite | on the box: `sudo /opt/vac/infra/backup.sh` — uses SQLite's backup API against the live WAL-mode db (a plain `cp`/`compose cp` can capture a torn copy), verifies integrity, uploads to S3, pings the dead-man check |
+| Backup timer status | on the box: `systemctl list-timers vac-backup.timer` (nightly 07:15 UTC; `Persistent=true` re-runs a missed one at boot) |
+| Watchdog status | on the box: `systemctl list-timers vac-watchdog.timer` — every 5 min `infra/disk-watch.sh` alerts Discord at >85% disk and restarts unhealthy containers |
+| Restore SQLite | on the box: `sudo /opt/vac/infra/restore.sh` (backs up current state first, verifies the download, swaps the db with stale `-wal`/`-shm` removed, health-checks). Drill without touching prod: `infra/restore.sh --drill` — **drill status: pending, not yet executed; record the measured RTO here after the first run** |
+| Roll back a bad deploy | `git revert <sha> && git push` — the only rollback path: `deploy.sh` does `git reset --hard origin/main`, so reverting the commit and pushing redeploys the previous code |
+| Stop paying | `aws ec2 stop-instances --instance-ids <id>` (EBS + Elastic IP still bill a few $/mo); to remove everything, delete in reverse: CloudFront distribution, instance, Elastic IP, security group, IAM roles, `/vac/*` parameters, SNS topic + CloudWatch alarms, the AWS Budget + anomaly monitor |
+
+> **Known upgrade, deliberately deferred:** [Litestream](https://litestream.io/) would cut the backup RPO from 24 h to seconds, but a nightly integrity-checked snapshot with a dead-man switch is a defensible stopping point for a solo maintainer — revisit if tilt_snapshots ever become precious enough that losing a day hurts.
 
 ### How requests are rate-limited behind the proxy
 
@@ -116,6 +144,6 @@ Uses your `backend/.env`. State lives in the `state` Docker volume (`docker comp
 
 ---
 
-## Legacy: Render + Vercel
+## History: the Render + Vercel era
 
-`render.yaml` and `frontend/vercel.json` are kept for anyone who wants the free-tier path (Render web service + Vercel static site, joined by `CORS_ORIGINS`). Set `VITE_API_URL` on Vercel to the Render URL and `CORS_ORIGINS` on Render to the Vercel URL; note Render's free disk is ephemeral, so SQLite resets on every deploy or cold start. The git history before the AWS migration has the full walkthrough.
+The project originally deployed as a Render free-tier web service plus a Vercel static site. That path is gone: Render's free disk is ephemeral (SQLite reset on every deploy or cold start), which is what motivated the move to the AWS stack this document describes — one EC2 box running the same Docker Compose stack as local dev, persistent SQLite on EBS, CloudFront for TLS/CDN, and OIDC push-to-deploy over SSM. The legacy configs (`render.yaml`, `frontend/vercel.json`) were removed in Sept 2026; the git history before the AWS migration has the full free-tier walkthrough if anyone wants to resurrect it.

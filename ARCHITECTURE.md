@@ -234,10 +234,11 @@ question, a ~85% reduction — *with better retrieval, not worse*.
 
 **The binding constraint is not the server.** It's the two upstreams:
 
-- **HenrikDev allows 30 requests/min** and nothing caches responses. One user
-  session makes **~5 upstream calls** (dashboard account + matches, analyze,
-  tilt-check, coach). That's a ceiling of roughly **6 concurrent sessions/min**
-  before a third party starts refusing you — long before the CPU notices.
+- **HenrikDev allows 30 requests/min** and (at the time of this analysis)
+  nothing cached responses. One user session made **~5 upstream calls**
+  (dashboard account + matches, analyze, tilt-check, coach) — a ceiling of
+  roughly **6 concurrent sessions/min** before a third party starts refusing
+  you, long before the CPU notices. (Since fixed — see recommendation 1.)
 - **One uvicorn worker.** Claude calls take 5–10 s and run in a threadpool, so
   they don't block the loop, but throughput is still bounded.
 - **Growth shows up as an Anthropic bill, not CPU.** At the measured 4.7¢ per
@@ -278,8 +279,15 @@ question, a ~85% reduction — *with better retrieval, not worse*.
    `(region, name, tag, size, mode)` — **`mode` matters**, since different
    routes request `competitive` vs unfiltered — cuts ~5 calls to ~2 and roughly
    **doubles the concurrent-user ceiling for free.**
+   *Shipped (Sept 2026):* an in-process TTL dict in `riot_service.py` keyed on
+   full URL + sorted params (account 10 min, matches 2 min, 256-entry cap) —
+   in-memory rather than the SQLite sketch above, which is simpler and correct
+   for exactly one uvicorn process; see `backend/tests/test_riot_cache.py`.
 2. **Back up the SQLite file.** `tilt_snapshots` is the only irreplaceable data
    here and it sits on a volume with `DeleteOnTermination=true`.
+   *Shipped:* nightly integrity-checked backup to versioned S3
+   (`infra/backup.sh` + systemd timer) with a restore script and drill mode
+   (`infra/restore.sh`) and a dead-man-switch ping — see DEPLOYMENT.md.
 3. **Per-model thinking config** — unblocks the 5× cheaper model.
 
 **What NOT to change, and why:**

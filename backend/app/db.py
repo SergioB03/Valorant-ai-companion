@@ -63,6 +63,19 @@ CREATE TABLE IF NOT EXISTS ip_usage (
     calls INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (day, ip_key)
 );
+
+-- Exact-match answer cache for /meta/ask (rag_service.ask_meta). Key is the
+-- sha256 of the normalized question plus the corpus/chunker fingerprint, so a
+-- knowledge-base change orphans old rows instead of serving wrong-patch
+-- answers; put_meta_answer prunes orphans on write. Exact-match on purpose —
+-- semantic caching would happily serve near-miss wrong answers.
+CREATE TABLE IF NOT EXISTS meta_answer_cache (
+    question_hash TEXT NOT NULL,
+    index_version TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (question_hash, index_version)
+);
 """
 
 # Runs once per process alongside SCHEMA. Earlier versions stored the text of
@@ -85,6 +98,11 @@ def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=5000")
+    # synchronous does not persist in the db file, so it is set per-connection
+    # like busy_timeout. NORMAL is corruption-safe under WAL (a power cut can
+    # lose the last transactions, never the database) and drops an fsync per
+    # commit on this single small box.
+    conn.execute("PRAGMA synchronous=NORMAL")
     if not _initialized:
         with _init_lock:
             if not _initialized:
@@ -154,6 +172,46 @@ def get_sessions(riot_id: str, limit: int = 20) -> list:
             (riot_id, limit),
         ).fetchall()
         return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+# --- Meta answer cache --------------------------------------------------------
+
+
+def get_meta_answer(question_hash: str, index_version: str):
+    """Cached /meta/ask response for this exact question + corpus version, or None."""
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT response_json FROM meta_answer_cache "
+            "WHERE question_hash = ? AND index_version = ?",
+            (question_hash, index_version),
+        ).fetchone()
+        return json.loads(row["response_json"]) if row else None
+    finally:
+        conn.close()
+
+
+def put_meta_answer(question_hash: str, index_version: str, response: dict):
+    """Store a successful /meta/ask response; prune rows from older corpora.
+
+    The prune makes reindex/deploy invalidation self-cleaning: rows keyed to a
+    superseded index_version can never be read again (the key includes the
+    current version), so they are garbage the moment the corpus changes.
+    """
+    conn = get_conn()
+    try:
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO meta_answer_cache "
+                "(question_hash, index_version, response_json) VALUES (?, ?, ?)",
+                (question_hash, index_version, json.dumps(response)),
+            )
+            conn.execute(
+                "DELETE FROM meta_answer_cache WHERE index_version != ?",
+                (index_version,),
+            )
     finally:
         conn.close()
 

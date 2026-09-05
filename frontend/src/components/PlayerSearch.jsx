@@ -1,6 +1,5 @@
 import { useState } from "react";
-
-const REGIONS = ["na", "eu", "ap", "kr"];
+import { REGIONS } from "../utils.js";
 
 export default function PlayerSearch({ initial, onSearch }) {
   const [name, setName] = useState(initial ? initial.name : "");

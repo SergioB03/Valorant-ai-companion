@@ -65,13 +65,45 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 UNIT
+echo "==> Watchdog timer (disk usage + unhealthy containers)"
+# infra/disk-watch.sh alerts Discord on >85% disk and restarts any compose
+# service whose healthcheck reports unhealthy — `restart: unless-stopped` only
+# acts on process exit, so a hung-but-alive uvicorn would otherwise stay dead
+# until a human noticed.
+cat > /etc/systemd/system/vac-watchdog.service <<UNIT
+[Unit]
+Description=Valorant AI Companion watchdog: disk usage + unhealthy containers
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=$APP_DIR
+ExecStart=/bin/bash $APP_DIR/infra/disk-watch.sh
+UNIT
+cat > /etc/systemd/system/vac-watchdog.timer <<'UNIT'
+[Unit]
+Description=Run the vac watchdog every 5 minutes
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+UNIT
+
 systemctl daemon-reload
 systemctl enable --now vac-backup.timer >/dev/null 2>&1
+systemctl enable --now vac-watchdog.timer >/dev/null 2>&1
 echo "    next run: $(systemctl show vac-backup.timer -p NextElapseUSecRealtime --value 2>/dev/null || echo 'scheduled')"
 
 echo "==> Health"
+# /api/health is liveness (is the container up) — the question this loop asks.
+# The workflow's post-deploy smoke test then checks /api/health/ready through
+# CloudFront, which 503s when a required key is missing from SSM.
 for i in $(seq 1 45); do
-  if curl -fsS -H "X-Origin-Verify: $ORIGIN_SECRET" http://localhost/api/ >/dev/null 2>&1; then
+  if curl -fsS -H "X-Origin-Verify: $ORIGIN_SECRET" http://localhost/api/health >/dev/null 2>&1; then
     echo "    API up: $(curl -fsS -H "X-Origin-Verify: $ORIGIN_SECRET" http://localhost/api/meta/status)"
     exit 0
   fi

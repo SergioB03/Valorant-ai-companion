@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { tiltCheck, coachChat, getMentalProfile } from "../api.js";
+import { tiltCheck, coachChat, getMentalProfile, isCancelled } from "../api.js";
 import {
   LEVEL_COLORS,
   shortDateTime,
@@ -10,6 +10,7 @@ import { Spinner, ErrorBanner, EmptyState } from "./common.jsx";
 import { Insignia, AgentBadge } from "./Insignia.jsx";
 import TiltMeter from "./TiltMeter.jsx";
 import Sparkline from "./Sparkline.jsx";
+import Stopwatch from "./Stopwatch.jsx";
 import { track } from "../analytics.js";
 
 function TrendBadge({ trend }) {
@@ -110,8 +111,14 @@ function TrendPair({ label, trend, digits }) {
   );
 }
 
-export default function MentalCoachTab({ player }) {
-  const [tilt, setTilt] = useState({ loading: false, error: null, report: null });
+export default function MentalCoachTab({ player, active }) {
+  const [tilt, setTilt] = useState({
+    loading: false,
+    error: null,
+    report: null,
+    cancelled: false,
+    elapsedMs: null,
+  });
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -119,11 +126,18 @@ export default function MentalCoachTab({ player }) {
   const [profile, setProfile] = useState({ loading: false, error: null, data: null });
   const chatRef = useRef(null);
   const aliveRef = useRef(true);
+  const activatedRef = useRef(false);
+  const tiltAbortRef = useRef(null);
+  const chatAbortRef = useRef(null);
 
   useEffect(() => {
     aliveRef.current = true;
     return () => {
       aliveRef.current = false;
+      // Abort in-flight requests on unmount (player switches remount this
+      // tab via the keyed wrapper in App).
+      tiltAbortRef.current?.abort();
+      chatAbortRef.current?.abort();
     };
   }, []);
 
@@ -140,9 +154,16 @@ export default function MentalCoachTab({ player }) {
       });
   }, [player]);
 
+  // Fetch the profile on first *activation* of this tab, not on mount — the
+  // tab is mounted-but-[hidden] on every search, and /mental/profile has its
+  // own 15/min rate budget, so loading it for a tab nobody opened was a
+  // wasted request per search.
   useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
+    if (active && !activatedRef.current) {
+      activatedRef.current = true;
+      loadProfile();
+    }
+  }, [active, loadProfile]);
 
   useEffect(() => {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
@@ -150,27 +171,61 @@ export default function MentalCoachTab({ player }) {
 
   async function runTiltCheck() {
     if (!player || tilt.loading) return;
-    setTilt({ loading: true, error: null, report: null });
+    const controller = new AbortController();
+    tiltAbortRef.current = controller;
+    setTilt({
+      loading: true,
+      error: null,
+      report: null,
+      cancelled: false,
+      elapsedMs: null,
+    });
     const t0 = performance.now();
     try {
-      const report = await tiltCheck(player.name, player.tag, player.region, 10);
+      const report = await tiltCheck(player.name, player.tag, player.region, 10, {
+        signal: controller.signal,
+      });
+      const elapsedMs = Math.round(performance.now() - t0);
       track("tilt_check", {
         tilt_level: report.tilt_level,
         tilt_score: report.tilt_score,
-        latency_ms: Math.round(performance.now() - t0),
+        latency_ms: elapsedMs,
         ok: true,
       });
       if (!aliveRef.current) return;
-      setTilt({ loading: false, error: null, report });
+      setTilt({ loading: false, error: null, report, cancelled: false, elapsedMs });
       loadProfile();
     } catch (err) {
+      if (isCancelled(err)) {
+        if (aliveRef.current)
+          setTilt({
+            loading: false,
+            error: null,
+            report: null,
+            cancelled: true,
+            elapsedMs: null,
+          });
+        return;
+      }
       track("tilt_check", {
         latency_ms: Math.round(performance.now() - t0),
         ok: false,
       });
       if (!aliveRef.current) return;
-      setTilt({ loading: false, error: err.message, report: null });
+      setTilt({
+        loading: false,
+        error: err.message,
+        report: null,
+        cancelled: false,
+        elapsedMs: null,
+      });
     }
+  }
+
+  // Client-side cancel: recovers the UI, though an in-flight Claude
+  // generation on the backend still runs to completion.
+  function cancelTiltCheck() {
+    tiltAbortRef.current?.abort();
   }
 
   async function sendMessage(e) {
@@ -184,6 +239,8 @@ export default function MentalCoachTab({ player }) {
     const priorTurns = messages;
     setMessages((m) => [...m, { role: "user", text }]);
     setSending(true);
+    const controller = new AbortController();
+    chatAbortRef.current = controller;
     const t0 = performance.now();
     try {
       const res = await coachChat(
@@ -192,6 +249,7 @@ export default function MentalCoachTab({ player }) {
         player.region,
         text,
         priorTurns,
+        { signal: controller.signal },
       );
       track("coach_message_sent", {
         latency_ms: Math.round(performance.now() - t0),
@@ -209,6 +267,9 @@ export default function MentalCoachTab({ player }) {
       ]);
       loadProfile();
     } catch (err) {
+      // Abort on unmount — not a failure worth an analytics event, and the
+      // component is gone anyway.
+      if (isCancelled(err)) return;
       track("coach_message_sent", {
         latency_ms: Math.round(performance.now() - t0),
         ok: false,
@@ -264,7 +325,22 @@ export default function MentalCoachTab({ player }) {
         </p>
 
         {tilt.loading ? (
-          <Spinner label="Crunching recent matches and asking the coach…" />
+          <div className="wait-row">
+            <Spinner label="Crunching recent matches and asking the coach…" />
+            <Stopwatch running={tilt.loading} />
+            <button
+              type="button"
+              className="btn ghost small"
+              onClick={cancelTiltCheck}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : null}
+        {tilt.cancelled ? (
+          <p className="muted cancelled-note">
+            Tilt check cancelled — run it again whenever you&apos;re ready.
+          </p>
         ) : null}
         {tilt.error ? (
           <ErrorBanner message={tilt.error} onRetry={runTiltCheck} />
@@ -272,6 +348,13 @@ export default function MentalCoachTab({ player }) {
 
         {report ? (
           <div className="stack">
+            {tilt.elapsedMs != null ? (
+              <div className="chips">
+                <span className="chip">
+                  generated in {(tilt.elapsedMs / 1000).toFixed(1)}s
+                </span>
+              </div>
+            ) : null}
             <TiltMeter score={report.tilt_score} level={report.tilt_level} />
 
             <div className="tilt-grid">
@@ -344,7 +427,15 @@ export default function MentalCoachTab({ player }) {
           Claude. It isn't a therapist or a substitute for professional help.
         </p>
         <div className="chat-box">
-          <div className="chat-messages" ref={chatRef}>
+          {/* role="log" (implicit aria-live=polite) — coach replies and the
+              typing indicator arrive into an existing view, and this is the
+              only way a screen reader hears them. */}
+          <div
+            className="chat-messages"
+            ref={chatRef}
+            role="log"
+            aria-label="Coach conversation"
+          >
             {messages.length === 0 ? (
               <p className="muted chat-hint">
                 Ask anything — “why do I keep losing on Icebox?”, “should I keep

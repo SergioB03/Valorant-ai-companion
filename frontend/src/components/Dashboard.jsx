@@ -119,10 +119,15 @@ export default function Dashboard({ player }) {
   useEffect(() => {
     if (!player) return;
     let alive = true;
+    // Abort on unmount/player switch — no point finishing a fetch whose
+    // results will be thrown away (and it frees the backend's rate budget).
+    const controller = new AbortController();
     setState({ loading: true, error: null, account: null, matches: null });
     Promise.allSettled([
-      getAccount(player.name, player.tag),
-      getMatches(player.name, player.tag, player.region, 10),
+      getAccount(player.name, player.tag, { signal: controller.signal }),
+      getMatches(player.name, player.tag, player.region, 10, {
+        signal: controller.signal,
+      }),
     ]).then(([accountRes, matchesRes]) => {
       if (!alive) return;
       if (!searchTracked.current) {
@@ -153,6 +158,7 @@ export default function Dashboard({ player }) {
     });
     return () => {
       alive = false;
+      controller.abort();
     };
   }, [player, reloadKey]);
 

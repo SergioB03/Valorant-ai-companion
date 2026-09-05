@@ -79,7 +79,7 @@ This project is my attempt to bridge that gap — combining my passion for the g
 - [x] Security hardening pass — see [SECURITY.md](./SECURITY.md)
 - [x] Abuse and cost controls — daily spend ceiling, per-visitor quotas, bounded inputs
 - [x] Operational alerting for silent failures (budget, upstream key, rate limits)
-- [ ] Automated backups of the SQLite state
+- [x] Automated backups of the SQLite state — nightly, integrity-checked, to versioned S3, with a restore script and dead-man-switch alerting
 - [ ] Demo video
 - [ ] Migrate to production Riot API key
 
@@ -217,15 +217,19 @@ The frontend sends a small set of anonymous usage events (tab views, searches, a
 
 ```
 valorant-ai-companion/
-├── DEPLOYMENT.md               # Deploy walkthrough (AWS: EC2 + CloudFront)
+├── DEPLOYMENT.md               # Deploy walkthrough (AWS: EC2 + CloudFront) + ops runbook
 ├── SECURITY.md                 # Vulnerabilities found and fixed, and the lessons
 ├── ARCHITECTURE.md             # RAG + system design: measured, analysed, optimized
 ├── THIRD-PARTY-LICENSES.md     # Vendored code that isn't Apache-2.0
-├── render.yaml                 # Legacy Render Blueprint (superseded by infra/)
 ├── ANALYTICS.md                # Analytics design doc (events, privacy, tradeoffs)
+├── docker-compose.yml          # The production stack (runs locally too)
 ├── start-dev.bat               # Windows one-click dev launcher (backend :8001 + frontend :5173)
 ├── LICENSE
 ├── riot.txt                    # Riot site verification
+├── infra/                      # AWS scripts: bootstrap, deploy, backup/restore, watchdogs, alarms
+├── docs/
+│   ├── OPTIMIZATION-PLAN.md    # The measured 4-wave optimization roadmap
+│   └── changes/                # Per-change records with before/after screenshots
 ├── backend/
 │   ├── app/
 │   │   ├── main.py             # FastAPI app, CORS, rate limiter, router wiring
@@ -238,23 +242,30 @@ valorant-ai-companion/
 │   │   │   ├── claude.py       # Claude Q&A + match analysis endpoints
 │   │   │   ├── mental.py       # Tilt check, coach chat, profile endpoints
 │   │   │   ├── meta.py         # RAG meta Q&A endpoints
+│   │   │   ├── health.py       # Liveness + readiness probes
 │   │   │   └── analytics.py    # Anonymous event ingestion + admin summary
 │   │   └── services/
-│   │       ├── riot_service.py     # HenrikDev API client + match summarizer
+│   │       ├── riot_service.py     # HenrikDev API client + TTL cache + match summarizer
 │   │       ├── claude_service.py   # Claude API wrapper
 │   │       ├── mental_service.py   # Tilt detection + coach prompts
-│   │       └── rag_service.py      # ChromaDB indexing + retrieval
+│   │       └── rag_service.py      # ChromaDB indexing + hybrid retrieval
+│   ├── scripts/                # Corpus maintenance (VALORANT Wiki patch-notes ingestion)
+│   ├── tests/
+│   │   └── eval/               # Gold-set retrieval eval (Hit@5 / MRR), opt-in via RUN_RAG_EVAL=1
 │   ├── data/
 │   │   ├── knowledge/          # Markdown corpus for RAG (patches, meta, maps...)
 │   │   ├── chroma_db/          # Vector index (generated, gitignored)
 │   │   └── companion.sqlite3   # SQLite DB — mental profiles + analytics (generated, gitignored)
 │   ├── .env.example
-│   └── requirements.txt
+│   ├── requirements.txt
+│   └── requirements-dev.txt    # Test-only deps (chromadb stubbed in tests)
 └── frontend/
     ├── index.html
     ├── vite.config.js
-    ├── vercel.json             # SPA rewrites for Vercel
     ├── package.json
+    ├── eslint.config.js
+    ├── scripts/                # One-time asset pipeline (WebP splashes/icons, OG card)
+    ├── public/                 # privacy.html, OG card, favicon
     └── src/
         ├── main.jsx
         ├── App.jsx
@@ -262,6 +273,7 @@ valorant-ai-companion/
         ├── analytics.js        # Anonymous, DNT-respecting usage-event client
         ├── utils.js            # Shared formatting helpers (dates, etc.)
         ├── index.css
+        ├── assets/             # Self-hosted WebP map splashes + agent icons
         └── components/
 ```
 

@@ -56,8 +56,11 @@ values always check the official patch notes at playvalorant.com.
 ## How to use these summaries
 
 - Use them for direction ("Tejo was strong then nerfed through 2025", "Corrode
-  is the newest map") rather than exact numbers.
-- Anything about the current live patch, agent win rates today, or post-2025
-  releases is outside this knowledge base — say so when asked.
+  was 2025's newest map") rather than exact numbers.
+- These reconstructed summaries end in late 2025. Newer, real patch notes live
+  in the per-patch files alongside this one (patch-notes-13-04.md and later,
+  ingested from the community wiki) — prefer those for anything recent.
+- Agent win rates today and unreleased content are outside the knowledge base
+  entirely — say so when asked.
 - Patch cadence is roughly every two weeks, with larger changes at Act
-  boundaries; assume several patches have shipped since this snapshot.
+  boundaries.

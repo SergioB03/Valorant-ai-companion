@@ -27,6 +27,16 @@ fi
 dnf install -y docker git
 systemctl enable --now docker
 
+# Unattended security patches. This box runs for months between human logins;
+# without this, kernel/Docker/openssl never receive a security update. Configure
+# explicitly rather than trusting distro defaults: security updates only
+# (minimal surprise-breakage risk), and actually APPLY them — the stock
+# apply_updates=no merely downloads. (Idempotent: sed + enable re-run cleanly.)
+dnf install -y dnf-automatic
+sed -i -e 's/^upgrade_type *=.*/upgrade_type = security/' \
+       -e 's/^apply_updates *=.*/apply_updates = yes/' /etc/dnf/automatic.conf
+systemctl enable --now dnf-automatic.timer
+
 # Compose isn't packaged for AL2023, and the AL2023 docker RPM bundles a buildx (0.12.x)
 # too old for current Compose (`compose build` needs buildx >= 0.17). Install current
 # buildx + compose under /usr/local/lib, which the docker CLI searches before /usr/libexec.

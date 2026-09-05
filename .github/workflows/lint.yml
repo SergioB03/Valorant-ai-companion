@@ -1,15 +1,16 @@
-# Catches the class of bug that shipped to production undetected: mental.py
-# called notify_error() without importing it, so the tilt-check error path
-# raised NameError instead of its intended 502 — invisible until the failure it
-# was written to handle actually happened.
+# Pull-request CI. The same three jobs also run on push to main inside
+# deploy.yml, where the deploy job declares `needs:` on them — that is what
+# actually gates the deploy. This workflow exists so PRs get the identical
+# signal before merge.
 #
-# Error-handling code is the least-exercised code in any app. A linter reads it
-# anyway. This runs in seconds and gates the deploy.
+# Why lint at all: the class of bug that shipped to production undetected —
+# mental.py called notify_error() without importing it, so the tilt-check error
+# path raised NameError instead of its intended 502 — invisible until the
+# failure it was written to handle actually happened. Error-handling code is
+# the least-exercised code in any app. A linter reads it anyway.
 name: Lint
 
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -47,3 +48,20 @@ jobs:
         run: python -m pytest backend/tests -q
         env:
           PYTHONPATH: backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run test -- --run
+      - run: npm run build

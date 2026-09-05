@@ -1,8 +1,10 @@
 #!/bin/bash
 # Nightly backup of the SQLite state to S3.
 #
-# Installed on the instance by infra/deploy.sh as a cron job. Run by hand any
+# Installed on the instance by infra/deploy.sh as a systemd timer
+# (vac-backup.timer — AL2023 ships no cron daemon). Run by hand any
 # time: sudo /opt/vac/infra/backup.sh
+# Restore path: infra/restore.sh (drill: infra/restore.sh --drill).
 #
 # Why this exists: companion.sqlite3 holds tilt_snapshots — the only data in
 # this system that cannot be regenerated from anywhere else. It lives on a
@@ -72,4 +74,17 @@ if [ -n "$CUTOFF" ]; then
     | tr '\t' '\n' | grep -v '^$' | while read -r k; do
         aws s3 rm "s3://$BUCKET/$k" --only-show-errors
       done || true
+fi
+
+# Dead-man switch: ping the healthchecks.io check on SUCCESS only. set -euo
+# pipefail above guarantees we only reach this line after the S3 upload
+# succeeded, so a silently failing nightly timer alerts within a day — the one
+# failure mode the in-app Discord alerting structurally cannot report.
+# The URL comes from $HEALTHCHECK_URL or the /vac/HEALTHCHECK_URL SSM parameter
+# (create it once — see DEPLOYMENT.md "Outside-in alerting"). Unset = no-op.
+HEALTHCHECK_URL=${HEALTHCHECK_URL:-$(aws ssm get-parameter --name "$PARAM_PREFIX/HEALTHCHECK_URL" \
+  --query Parameter.Value --output text 2>/dev/null || true)}
+if [ -n "$HEALTHCHECK_URL" ] && [ "$HEALTHCHECK_URL" != "None" ]; then
+  curl -fsS -m 10 --retry 3 "$HEALTHCHECK_URL" >/dev/null && echo "healthcheck pinged" \
+    || echo "healthcheck ping failed (backup itself succeeded)"
 fi

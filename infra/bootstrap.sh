@@ -139,8 +139,11 @@ aws iam put-role-policy --role-name "$ROLE" --policy-name read-app-parameters --
   "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"ssm:GetParametersByPath\",\"ssm:GetParameters\",\"ssm:GetParameter\"],\"Resource\":[\"arn:aws:ssm:$REGION:$ACCOUNT:parameter$PARAM_PREFIX\",\"arn:aws:ssm:$REGION:$ACCOUNT:parameter$PARAM_PREFIX/*\"]}]}"
 # Two item-level actions on one table. No scan, no delete, no table management.
 aws iam put-role-policy --role-name "$ROLE" --policy-name budget-counters --policy-document   "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:UpdateItem\"],\"Resource\":\"arn:aws:dynamodb:$REGION:$ACCOUNT:table/$BUDGET_TABLE\"}]}"
-# Write-only, and only to this one bucket.
-aws iam put-role-policy --role-name "$ROLE" --policy-name write-backups --policy-document   "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:ListBucket\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::$BUCKET\",\"arn:aws:s3:::$BUCKET/*\"]}]}"
+# Write to the one backup bucket, plus GetObject on the companion/* prefix only —
+# the minimum infra/restore.sh needs to pull a backup back onto the box. This
+# mildly weakens the original write-only posture; bucket versioning +
+# NoncurrentVersionExpiration still protect history against an overwrite.
+aws iam put-role-policy --role-name "$ROLE" --policy-name write-backups --policy-document   "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:ListBucket\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::$BUCKET\",\"arn:aws:s3:::$BUCKET/*\"]},{\"Effect\":\"Allow\",\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::$BUCKET/companion/*\"}]}"
 if ! aws iam get-instance-profile --instance-profile-name "$ROLE" >/dev/null 2>&1; then
   aws iam create-instance-profile --instance-profile-name "$ROLE" >/dev/null
 fi

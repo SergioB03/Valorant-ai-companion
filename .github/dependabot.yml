@@ -1,0 +1,39 @@
+# Weekly dependency updates, grouped so each ecosystem produces ONE minor/patch
+# PR per week instead of a noise stream — backend/requirements.txt pins ~24
+# packages including transitive deps, so ungrouped PRs would violate the
+# zero-burden promise of a solo-maintained hobby project. Major bumps still
+# arrive individually (they deserve individual review).
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    groups:
+      python-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      npm-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch

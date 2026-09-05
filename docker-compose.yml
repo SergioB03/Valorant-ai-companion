@@ -5,6 +5,9 @@
 # root volume that makes "the disk filled up" the most likely way this app dies
 # unattended — and a full disk takes down the whole box, not just logging.
 # 30 MB per service is plenty to debug a recent incident.
+# (infra/disk-watch.sh, installed as a systemd timer by infra/deploy.sh, is the
+# watchdog for the disk itself and for hung-but-alive containers: `restart:
+# unless-stopped` only acts on process exit, never on healthcheck status.)
 x-logging: &default-logging
   driver: json-file
   options:
@@ -22,8 +25,25 @@ services:
       - state:/app/state         # SQLite (mental profiles + analytics) survives redeploys
     restart: unless-stopped
     logging: *default-logging
+    # Bounded so one runaway container can't starve the t3.small (2 vCPU / 2 GB
+    # + 2 GB swap). The API idles ~160 MB; 1 GB leaves headroom for Chroma +
+    # concurrent Claude calls. Limits apply to the running container only —
+    # image builds are unconstrained.
+    mem_limit: 1g
+    cpus: 1.5
+    # Runs as uid 1000 (Dockerfile USER app) on a high port: needs no Linux
+    # capabilities at all, and must never gain new privileges via setuid bits.
+    # No read_only rootfs here: Chroma writes into /app/data/chroma_db and the
+    # backup snapshot is staged in /tmp.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3)"]
+      # /health is the dependency-free liveness route (backend/app/routes/health.py)
+      # — deliberately not "/" and not anything that touches HenrikDev/Anthropic,
+      # so someone else's outage can't mark us unhealthy.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -42,6 +62,19 @@ services:
       - api
     restart: unless-stopped
     logging: *default-logging
+    mem_limit: 256m
+    cpus: 0.5
+    # Static files + reverse proxy: the rootfs has no reason to be writable.
+    # Caddy's only writes go to /config and /data (autosave, storage), served
+    # from tmpfs. Caddy stays container-root because it binds :80, so keep its
+    # default capability set (it needs NET_BIND_SERVICE) — but no escalation.
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /config
+      - /data
+      - /tmp
 
 volumes:
   state:

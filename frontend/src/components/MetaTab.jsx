@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { askMeta } from "../api.js";
+import { useEffect, useRef, useState } from "react";
+import { askMeta, isCancelled } from "../api.js";
 import { splitParagraphs, stripMarkdown } from "../utils.js";
 import { Spinner, ErrorBanner } from "./common.jsx";
 import { Insignia } from "./Insignia.jsx";
+import Stopwatch from "./Stopwatch.jsx";
 import { track } from "../analytics.js";
 
 const EXAMPLES = [
@@ -12,37 +13,99 @@ const EXAMPLES = [
   "How do I stop tilting after two losses?",
 ];
 
+/**
+ * Source citations. Chips are tap-to-reveal (the snippet used to live only in
+ * a hover title attribute — invisible on touch); when the backend marks which
+ * sources the answer actually drew on (`used: true`, optional field), used
+ * chips get a badge and unused ones are de-emphasized.
+ */
+function SourceList({ sources }) {
+  const [expanded, setExpanded] = useState(null);
+  const anyUsed = sources.some((s) => s && s.used === true);
+  const open = expanded != null ? sources[expanded] : null;
+
+  return (
+    <div className="sources-row">
+      <span className="mini-title">Sources ({sources.length})</span>
+      <div className="chips">
+        {sources.map((s, i) => {
+          const dimmed = anyUsed && s.used !== true;
+          return (
+            <button
+              key={i}
+              type="button"
+              className={`chip chip-btn source-chip${
+                dimmed ? " source-unused" : ""
+              }${expanded === i ? " open" : ""}`}
+              aria-expanded={expanded === i}
+              onClick={() => setExpanded(expanded === i ? null : i)}
+            >
+              {s.source}
+              {s.section ? ` › ${s.section}` : ""}
+              {s.used === true ? (
+                <span className="source-used-badge">used</span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+      {open && open.snippet ? (
+        <blockquote className="source-snippet">
+          {open.snippet}…
+        </blockquote>
+      ) : null}
+    </div>
+  );
+}
+
 export default function MetaTab() {
   const [question, setQuestion] = useState("");
   const [state, setState] = useState({
     loading: false,
     error: null,
     unavailable: false,
+    cancelled: false,
     asked: "",
     result: null,
+    elapsedMs: null,
   });
+  const abortRef = useRef(null);
+
+  // Abort an in-flight question on unmount.
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
 
   async function ask(q) {
     const text = (q || "").trim();
     if (!text || state.loading) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
     setQuestion(text);
     setState({
       loading: true,
       error: null,
       unavailable: false,
+      cancelled: false,
       asked: text,
       result: null,
+      elapsedMs: null,
     });
     const t0 = performance.now();
     try {
-      const result = await askMeta(text);
+      const result = await askMeta(text, { signal: controller.signal });
+      const elapsedMs = Math.round(performance.now() - t0);
       track("meta_question", {
-        latency_ms: Math.round(performance.now() - t0),
+        latency_ms: elapsedMs,
         ok: true,
         unavailable: false,
       });
-      setState((s) => ({ ...s, loading: false, result }));
+      setState((s) => ({ ...s, loading: false, result, elapsedMs }));
     } catch (err) {
+      if (isCancelled(err)) {
+        setState((s) => ({ ...s, loading: false, cancelled: true }));
+        return;
+      }
       const unavailable = err.status === 503;
       track("meta_question", {
         latency_ms: Math.round(performance.now() - t0),
@@ -55,6 +118,11 @@ export default function MetaTab() {
         setState((s) => ({ ...s, loading: false, error: err.message }));
       }
     }
+  }
+
+  // Recovers the UI; an in-flight backend generation still completes.
+  function cancel() {
+    abortRef.current?.abort();
   }
 
   function handleSubmit(e) {
@@ -104,7 +172,21 @@ export default function MetaTab() {
 
       {state.loading ? (
         <section className="panel">
-          <Spinner label="Searching the knowledge base and asking Claude…" />
+          <div className="wait-row">
+            <Spinner label="Searching the knowledge base and asking Claude…" />
+            <Stopwatch running={state.loading} />
+            <button type="button" className="btn ghost small" onClick={cancel}>
+              Cancel
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {state.cancelled ? (
+        <section className="panel">
+          <p className="muted cancelled-note">
+            Question cancelled — ask again whenever you&apos;re ready.
+          </p>
         </section>
       ) : null}
 
@@ -129,7 +211,14 @@ export default function MetaTab() {
         <section className="panel rise">
           <div className="panel-head-row">
             <h3 className="panel-title">Intel</h3>
-            <Insignia kind="neutral" label="Knowledge base" />
+            <div className="chips">
+              {state.elapsedMs != null ? (
+                <span className="chip">
+                  generated in {(state.elapsedMs / 1000).toFixed(1)}s
+                </span>
+              ) : null}
+              <Insignia kind="neutral" label="Knowledge base" />
+            </div>
           </div>
           <span className="chip asked-chip">{state.asked}</span>
           <div className="answer-body">
@@ -145,24 +234,16 @@ export default function MetaTab() {
               )
             )}
           </div>
+          {state.result.corpus_vintage ? (
+            <p className="vintage-caption">
+              Knowledge base: {state.result.corpus_vintage}
+            </p>
+          ) : null}
           {state.result.sources && state.result.sources.length > 0 ? (
-            <div className="sources-row">
-              <span className="mini-title">
-                Sources ({state.result.sources.length})
-              </span>
-              <div className="chips">
-                {state.result.sources.map((s, i) => (
-                  <span
-                    key={i}
-                    className="chip source-chip"
-                    title={s.snippet ? `${s.snippet}…` : undefined}
-                  >
-                    {s.source}
-                    {s.section ? ` › ${s.section}` : ""}
-                  </span>
-                ))}
-              </div>
-            </div>
+            <SourceList
+              key={state.asked}
+              sources={state.result.sources}
+            />
           ) : null}
         </section>
       ) : null}

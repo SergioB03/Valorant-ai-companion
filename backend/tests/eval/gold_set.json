@@ -1,0 +1,313 @@
+{
+  "_notes": [
+    "Gold set for the RAG retrieval eval (tests/eval/test_rag_eval.py).",
+    "Positive entries map a realistic user question to the (source file, section heading)",
+    "pairs whose chunk(s) genuinely answer it. A section of '*' accepts any section from",
+    "that source. Sections are the exact '## ' heading text in backend/data/knowledge/.",
+    "Negative entries probe the two-tier distance floor: 'negative_far' is far-domain junk",
+    "the floor must catch; 'negative_near' is near-domain (wrong game / unanswerable detail)",
+    "that measurably scores CLOSER than some legitimate hits and can only be handled by the",
+    "prompt — kept here so that limitation stays measured, not forgotten.",
+    "The first four questions are the MetaTab example chips, verbatim.",
+    "Going forward: add 2-3 questions per ingested patch (see the patch-13.05 block at the end)."
+  ],
+  "questions": [
+    {
+      "id": "chip-patches",
+      "question": "What changed in the most recent patches?",
+      "type": "positive",
+      "expect": [["patch-notes-recent.md", "*"], ["patch-notes-13-05.md", "*"], ["patch-notes-13-04.md", "*"]]
+    },
+    {
+      "id": "chip-agents",
+      "question": "Which agents are strong in ranked right now?",
+      "type": "positive",
+      "expect": [["agents-meta.md", "General meta sentiment (late 2025 snapshot)"]]
+    },
+    {
+      "id": "chip-economy",
+      "question": "How does the economy work — when should I save?",
+      "type": "positive",
+      "expect": [
+        ["economy.md", "Credit basics"],
+        ["economy.md", "The standard buy cycle"],
+        ["economy.md", "Buy-round vocabulary"],
+        ["economy.md", "Team economy rules of thumb"]
+      ]
+    },
+    {
+      "id": "chip-tilt",
+      "question": "How do I stop tilting after two losses?",
+      "type": "positive",
+      "expect": [
+        ["mental-game.md", "The reset routine (between games)"],
+        ["mental-game.md", "What tilt actually is"],
+        ["mental-game.md", "Early warning signs"]
+      ]
+    },
+    {
+      "id": "phantom-cost",
+      "question": "How much does a Phantom cost?",
+      "type": "positive",
+      "expect": [["economy.md", "Weapon prices (approximate)"]]
+    },
+    {
+      "id": "operator-buy",
+      "question": "What does the Operator cost and when is buying it a mistake?",
+      "type": "positive",
+      "expect": [
+        ["economy.md", "Weapon prices (approximate)"],
+        ["economy.md", "Team economy rules of thumb"]
+      ]
+    },
+    {
+      "id": "force-buy",
+      "question": "What is a force buy and when should my team force?",
+      "type": "positive",
+      "expect": [
+        ["economy.md", "Buy-round vocabulary"],
+        ["economy.md", "Team economy rules of thumb"],
+        ["economy.md", "The standard buy cycle"]
+      ]
+    },
+    {
+      "id": "plant-money",
+      "question": "How many credits do you get for planting the spike?",
+      "type": "positive",
+      "expect": [["economy.md", "Credit basics"]]
+    },
+    {
+      "id": "tejo-kit",
+      "question": "What abilities does Tejo have?",
+      "type": "positive",
+      "expect": [
+        ["agents-meta.md", "Initiators"],
+        ["patch-notes-recent.md", "Patch 10.00 — early January 2025 (summary)"]
+      ]
+    },
+    {
+      "id": "jett-kit",
+      "question": "What does Jett's kit do and why is she good?",
+      "type": "positive",
+      "expect": [["agents-meta.md", "Duelists"]]
+    },
+    {
+      "id": "icebox-controller",
+      "question": "Which controller should I play on Icebox?",
+      "type": "positive",
+      "expect": [
+        ["maps.md", "Icebox"],
+        ["team-comps.md", "Map-fit rules of thumb (late-2025 flavor)"],
+        ["team-comps.md", "Archetype: double controller"],
+        ["agents-meta.md", "Controllers"]
+      ]
+    },
+    {
+      "id": "ascent-callouts",
+      "question": "What are the important callouts on Ascent?",
+      "type": "positive",
+      "expect": [["maps.md", "Ascent"]]
+    },
+    {
+      "id": "map-pool",
+      "question": "Which maps are in the competitive map pool?",
+      "type": "positive",
+      "expect": [["maps.md", "Map pool basics"]]
+    },
+    {
+      "id": "newest-map",
+      "question": "What is the newest map in Valorant?",
+      "type": "positive",
+      "expect": [
+        ["maps.md", "Corrode"],
+        ["maps.md", "Map pool basics"],
+        ["patch-notes-recent.md", "Patch ~11.00 — June 2025 (summary)"]
+      ]
+    },
+    {
+      "id": "rr-gains",
+      "question": "How does RR work and how much do you gain or lose per match?",
+      "type": "positive",
+      "expect": [["ranked-system.md", "Ranked Rating (RR)"]]
+    },
+    {
+      "id": "mmr-vs-rr",
+      "question": "What is the difference between MMR and my visible rank?",
+      "type": "positive",
+      "expect": [["ranked-system.md", "MMR vs RR"]]
+    },
+    {
+      "id": "radiant-req",
+      "question": "What does it take to hit Radiant?",
+      "type": "positive",
+      "expect": [
+        ["ranked-system.md", "Immortal and Radiant"],
+        ["ranked-system.md", "Rank ladder"]
+      ]
+    },
+    {
+      "id": "queue-restrictions",
+      "question": "Can I queue ranked with friends at different ranks?",
+      "type": "positive",
+      "expect": [["ranked-system.md", "Queue restrictions"]]
+    },
+    {
+      "id": "premier",
+      "question": "What is Premier mode and how does it work?",
+      "type": "positive",
+      "expect": [["ranked-system.md", "Premier"]]
+    },
+    {
+      "id": "crosshair",
+      "question": "How do I improve my crosshair placement?",
+      "type": "positive",
+      "expect": [["improvement-guide.md", "Crosshair placement (the highest-ROI skill)"]]
+    },
+    {
+      "id": "aim-routine",
+      "question": "What is a good daily aim training routine?",
+      "type": "positive",
+      "expect": [["improvement-guide.md", "A daily aim routine (20 minutes)"]]
+    },
+    {
+      "id": "vandal-phantom",
+      "question": "Vandal or Phantom — which rifle should I use?",
+      "type": "positive",
+      "expect": [
+        ["improvement-guide.md", "Counter-strafing and first-bullet discipline"],
+        ["economy.md", "Weapon prices (approximate)"]
+      ]
+    },
+    {
+      "id": "vod-review",
+      "question": "How should I review my own VODs to actually improve?",
+      "type": "positive",
+      "expect": [["improvement-guide.md", "VOD review that actually improves you"]]
+    },
+    {
+      "id": "tilt-signs",
+      "question": "What are the early warning signs that I am tilting?",
+      "type": "positive",
+      "expect": [
+        ["mental-game.md", "Early warning signs"],
+        ["mental-game.md", "What tilt actually is"]
+      ]
+    },
+    {
+      "id": "warmup",
+      "question": "How should I warm up before a ranked session?",
+      "type": "positive",
+      "expect": [
+        ["mental-game.md", "Warmup that actually works"],
+        ["improvement-guide.md", "A daily aim routine (20 minutes)"]
+      ]
+    },
+    {
+      "id": "duelist-role",
+      "question": "What is a duelist actually supposed to do for the team?",
+      "type": "positive",
+      "expect": [["roles-guide.md", "Duelist — the space taker"]]
+    },
+    {
+      "id": "sentinel-role",
+      "question": "What is the job of a sentinel on defense?",
+      "type": "positive",
+      "expect": [["roles-guide.md", "Sentinel — the anchor"]]
+    },
+    {
+      "id": "five-stack-comp",
+      "question": "How do I build a good five-stack team composition?",
+      "type": "positive",
+      "expect": [
+        ["roles-guide.md", "Building a 5-stack comp"],
+        ["team-comps.md", "Comp building principles"]
+      ]
+    },
+    {
+      "id": "double-controller",
+      "question": "When should a team run two controllers?",
+      "type": "positive",
+      "expect": [
+        ["team-comps.md", "Archetype: double controller"],
+        ["team-comps.md", "Map-fit rules of thumb (late-2025 flavor)"]
+      ]
+    },
+    {
+      "id": "waylay-release",
+      "question": "When was Waylay released and what does she do?",
+      "type": "positive",
+      "expect": [
+        ["agents-meta.md", "Duelists"],
+        ["patch-notes-recent.md", "Patch 10.04 — March 2025 (summary)"]
+      ]
+    },
+    {
+      "id": "chamber-viability",
+      "question": "Is Chamber still worth playing?",
+      "type": "positive",
+      "expect": [["agents-meta.md", "Sentinels"]]
+    },
+
+    {
+      "id": "patch-1304-rotation",
+      "question": "Which map was rotated out of the pool in patch 13.04?",
+      "type": "positive",
+      "expect": [["patch-notes-13-04.md", "Patch 13.04 — Map Updates"]]
+    },
+    {
+      "id": "patch-1305-smokes",
+      "question": "What did patch 13.05 change about smokes?",
+      "type": "positive",
+      "expect": [["patch-notes-13-05.md", "Patch 13.05 — Agent Updates"]]
+    },
+    {
+      "id": "patch-1305-range",
+      "question": "What changed in The Range in the latest patch?",
+      "type": "positive",
+      "expect": [["patch-notes-13-05.md", "Patch 13.05 — Map Updates"]]
+    },
+
+    {
+      "id": "neg-cs2-mirage",
+      "question": "What is the best smoke lineup for Mirage?",
+      "type": "negative_near",
+      "why": "CS2 map — wrong game, but smoke/lineup vocabulary overlaps ours, so it embeds close"
+    },
+    {
+      "id": "neg-lol-climb",
+      "question": "How do I climb out of Silver in League of Legends?",
+      "type": "negative_near",
+      "why": "wrong game, but ranked-climbing vocabulary overlaps ranked-system.md"
+    },
+    {
+      "id": "neg-winrates",
+      "question": "What are the exact agent win rates in the current patch?",
+      "type": "negative_near",
+      "why": "in-domain question the corpus can never answer with numbers; prompt must caveat, floor cannot catch"
+    },
+    {
+      "id": "neg-banana-bread",
+      "question": "What is a good recipe for banana bread?",
+      "type": "negative_far",
+      "why": "far-domain junk — the distance floor must catch this"
+    },
+    {
+      "id": "neg-taxes",
+      "question": "How do I file my taxes as a freelancer?",
+      "type": "negative_far",
+      "why": "far-domain junk — the distance floor must catch this"
+    },
+    {
+      "id": "neg-weather",
+      "question": "What is the weather in Los Angeles today?",
+      "type": "negative_far",
+      "why": "far-domain junk — the distance floor must catch this"
+    },
+    {
+      "id": "neg-yasuo",
+      "question": "Which champions counter Yasuo in the mid lane?",
+      "type": "negative_near",
+      "why": "LoL specifics; MEASURED at d=1.17 on 2026-09-05 — closer than several legitimate hits, so the floor cannot catch it; prompt handles"
+    }
+  ]
+}

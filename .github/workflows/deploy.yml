@@ -1,6 +1,11 @@
-# Push-to-deploy. infra/bootstrap.sh creates the AWS side and sets the repo variables this
-# workflow reads (AWS_REGION, AWS_ROLE_ARN, EC2_INSTANCE_ID, CLOUDFRONT_DISTRIBUTION_ID,
-# APP_URL). Until those exist the job is skipped, so forks and fresh clones stay green.
+# Push-to-deploy — gated on CI. infra/bootstrap.sh creates the AWS side and sets the repo
+# variables this workflow reads (AWS_REGION, AWS_ROLE_ARN, EC2_INSTANCE_ID,
+# CLOUDFRONT_DISTRIBUTION_ID, APP_URL). Until those exist the deploy job is skipped, so
+# forks and fresh clones stay green — but lint/tests/frontend still run.
+#
+# The deploy job declares `needs:` on every check job, so a red suite can no longer ship:
+# previously lint.yml and this workflow both fired independently on push and a failing
+# lint deployed anyway. lint.yml still runs the same checks on pull requests.
 #
 # Auth is GitHub OIDC -> an IAM role that may only run commands on our one instance and
 # invalidate our one distribution — no AWS keys are stored in GitHub.
@@ -16,13 +21,63 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      # F821 undefined-name is the class of bug that shipped to production
+      # undetected once (mental.py called notify_error() without importing it).
+      - name: Undefined names, unused and redefined imports
+        run: ruff check --select F821,F401,F811 backend/app
+      - name: Full ruff report (non-blocking)
+        run: ruff check backend/app || true
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # requirements-dev.txt deliberately omits chromadb; conftest.py stubs it,
+      # so the suite runs in seconds instead of waiting on a large native build.
+      - run: pip install -r backend/requirements-dev.txt
+      - name: Backend tests
+        run: python -m pytest backend/tests -q
+        env:
+          PYTHONPATH: backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run test -- --run
+      - run: npm run build
+
   deploy:
     if: vars.AWS_ROLE_ARN != ''
+    needs: [lint, test, frontend]
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     env:
       INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
     steps:
@@ -63,13 +118,16 @@ jobs:
             --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" --paths "/*" \
             --query Invalidation.Id --output text
 
-      - name: Smoke test
+      # /api/health/ready returns 503 when a required key is missing from SSM —
+      # the state where the app runs but half the product 502s. The old smoke
+      # test (/api/ + /api/meta/status) returned 200 in exactly that state.
+      - name: Smoke test (readiness through CloudFront)
         run: |
           set -euo pipefail
           for i in $(seq 1 12); do
-            if curl -fsS "${{ vars.APP_URL }}/api/" && curl -fsS "${{ vars.APP_URL }}/api/meta/status"; then
+            if curl -fsS --max-time 10 "${{ vars.APP_URL }}/api/health/ready"; then
               echo; echo "OK: ${{ vars.APP_URL }}"; exit 0
             fi
             sleep 5
           done
-          echo "Smoke test failed for ${{ vars.APP_URL }}"; exit 1
+          echo "Readiness smoke test failed for ${{ vars.APP_URL }}"; exit 1

@@ -1,11 +1,12 @@
 import os
 import secrets
 
-from fastapi import Depends, APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-from app.errors import upstream_to_http
+
 from app.deps import ai_quota
+from app.errors import upstream_to_http
 from app.limiter import limiter
 from app.services import rag_service
 
@@ -30,8 +31,20 @@ async def ask(request: Request, body: AskRequest):
     question = body.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="question must not be empty")
+    # Readiness check only — NEVER ensure_index() here: if the baked collection
+    # were empty or corrupt, ensure_index would re-embed the whole corpus inline
+    # on a random visitor's request (multi-second, under the module lock, inside
+    # the proxy's 60s window, serialized against every other asker). Startup
+    # warming (warm_index_async) and the admin /meta/reindex own index builds;
+    # the request path answers 503 + Retry-After, which the frontend already
+    # renders as a graceful "warming up" notice.
+    if not await run_in_threadpool(rag_service.is_ready):
+        raise HTTPException(
+            status_code=503,
+            detail="The knowledge base is still warming up — try again in a moment.",
+            headers={"Retry-After": "15"},
+        )
     try:
-        await run_in_threadpool(rag_service.ensure_index)
         return await run_in_threadpool(rag_service.ask_meta, question)
     except HTTPException:
         raise

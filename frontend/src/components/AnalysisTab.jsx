@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { analyzeMatches } from "../api.js";
+import { useEffect, useRef, useState } from "react";
+import { analyzeMatches, isCancelled } from "../api.js";
 import { stripMarkdown, splitParagraphs } from "../utils.js";
 import { Spinner, ErrorBanner, EmptyState } from "./common.jsx";
 import { Insignia } from "./Insignia.jsx";
+import Stopwatch from "./Stopwatch.jsx";
 import { track } from "../analytics.js";
 
 const ANALYZE_SIZE = 10;
@@ -14,6 +15,11 @@ function MatchCountChip({ n }) {
       Analyzed your last {n} competitive match{n === 1 ? "" : "es"}
     </span>
   );
+}
+
+function GeneratedChip({ ms }) {
+  if (ms == null) return null;
+  return <span className="chip">generated in {(ms / 1000).toFixed(1)}s</span>;
 }
 
 function InsigniaList({ kind, label, items, baseDelay = 0, emptyText }) {
@@ -38,14 +44,17 @@ function InsigniaList({ kind, label, items, baseDelay = 0, emptyText }) {
   );
 }
 
-function Report({ analysis, matchCount }) {
+function Report({ analysis, matchCount, elapsedMs }) {
   // Backward-compatible: older backend returned a plain-text analysis.
   if (!analysis || typeof analysis !== "object") {
     return (
       <section className="panel rise">
         <div className="panel-head-row">
           <h3 className="panel-title">Coach report</h3>
-          <MatchCountChip n={matchCount} />
+          <div className="chips">
+            <MatchCountChip n={matchCount} />
+            <GeneratedChip ms={elapsedMs} />
+          </div>
         </div>
         <div className="prose">{stripMarkdown(String(analysis ?? ""))}</div>
       </section>
@@ -63,7 +72,10 @@ function Report({ analysis, matchCount }) {
       <section className="panel rise">
         <div className="panel-head-row">
           <h3 className="panel-title">The read</h3>
-          <MatchCountChip n={matchCount} />
+          <div className="chips">
+            <MatchCountChip n={matchCount} />
+            <GeneratedChip ms={elapsedMs} />
+          </div>
         </div>
         {overviewParas.length > 0 ? (
           <div className="overview-body">
@@ -133,33 +145,82 @@ export default function AnalysisTab({ player }) {
     loading: false,
     error: null,
     result: null,
+    cancelled: false,
+    elapsedMs: null,
   });
+  const abortRef = useRef(null);
+
+  // Abort any in-flight analysis on unmount — player switches remount this
+  // tab (keyed wrapper in App), so switching players also cancels cleanly.
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
 
   async function run() {
     if (!player || state.loading) return;
-    setState({ loading: true, error: null, result: null });
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setState({
+      loading: true,
+      error: null,
+      result: null,
+      cancelled: false,
+      elapsedMs: null,
+    });
     const t0 = performance.now();
     try {
       const result = await analyzeMatches(
         player.name,
         player.tag,
         player.region,
-        ANALYZE_SIZE
+        ANALYZE_SIZE,
+        { signal: controller.signal }
       );
+      const elapsedMs = Math.round(performance.now() - t0);
       track("analyze_run", {
         match_count: result.match_count ?? 0,
-        latency_ms: Math.round(performance.now() - t0),
+        latency_ms: elapsedMs,
         ok: true,
       });
-      setState({ loading: false, error: null, result });
+      setState({
+        loading: false,
+        error: null,
+        result,
+        cancelled: false,
+        elapsedMs,
+      });
     } catch (err) {
+      // User-initiated cancel (button, unmount) — a gentle state, not an
+      // error, and not an analytics failure event.
+      if (isCancelled(err)) {
+        setState({
+          loading: false,
+          error: null,
+          result: null,
+          cancelled: true,
+          elapsedMs: null,
+        });
+        return;
+      }
       track("analyze_run", {
         match_count: 0,
         latency_ms: Math.round(performance.now() - t0),
         ok: false,
       });
-      setState({ loading: false, error: err.message, result: null });
+      setState({
+        loading: false,
+        error: err.message,
+        result: null,
+        cancelled: false,
+        elapsedMs: null,
+      });
     }
+  }
+
+  // Honest caveat: aborting recovers the UI immediately but does not halt the
+  // backend's in-flight Claude generation — that spend is already committed.
+  function cancel() {
+    abortRef.current?.abort();
   }
 
   if (!player) {
@@ -195,7 +256,22 @@ export default function AnalysisTab({ player }) {
               : "Analyze my last competitive matches"}
         </button>
         {state.loading ? (
-          <Spinner label="Claude is reviewing the matches — this can take up to a minute." />
+          <div className="wait-row">
+            <Spinner label="Claude is reviewing the matches — this can take up to a minute." />
+            <Stopwatch running={state.loading} />
+            <button
+              type="button"
+              className="btn ghost small"
+              onClick={cancel}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : null}
+        {state.cancelled ? (
+          <p className="muted cancelled-note">
+            Analysis cancelled — run it again whenever you&apos;re ready.
+          </p>
         ) : null}
         {state.error ? (
           <ErrorBanner message={state.error} onRetry={run} />
@@ -206,6 +282,7 @@ export default function AnalysisTab({ player }) {
         <Report
           analysis={state.result.analysis}
           matchCount={state.result.match_count}
+          elapsedMs={state.elapsedMs}
         />
       ) : null}
     </div>

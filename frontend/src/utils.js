@@ -17,7 +17,76 @@ export function playerKey(player) {
   return `${player.name}#${player.tag}@${player.region}`.toLowerCase();
 }
 
+// Single source of truth for the region whitelist — the search form and the
+// shareable-URL parser must agree on what a valid region is.
+export const REGIONS = ["na", "eu", "ap", "kr"];
+
+// Must match the tab ids in App.jsx's TABS.
+export const TAB_IDS = ["dashboard", "analysis", "mental", "meta"];
+
+/**
+ * Parse the shareable-URL query string (?player=Name%23TAG&region=eu&tab=meta)
+ * into { player: {name, tag, region} | null, tab: string | null }.
+ *
+ * Defensive by design: region is validated against REGIONS (bad values fall
+ * back to "na"), tab against TAB_IDS (bad values are dropped), and a player
+ * param without both a name and a tag is ignored entirely.
+ */
+export function parseShareParams(search) {
+  let params;
+  try {
+    params = new URLSearchParams(search || "");
+  } catch {
+    return { player: null, tab: null };
+  }
+
+  let player = null;
+  const rawPlayer = (params.get("player") || "").trim();
+  if (rawPlayer.includes("#")) {
+    const [head, ...rest] = rawPlayer.split("#");
+    const name = head.trim();
+    const tag = rest.join("#").trim();
+    if (name && tag) {
+      const rawRegion = (params.get("region") || "").trim().toLowerCase();
+      const region = REGIONS.includes(rawRegion) ? rawRegion : "na";
+      player = { name, tag, region };
+    }
+  }
+
+  const rawTab = (params.get("tab") || "").trim().toLowerCase();
+  const tab = TAB_IDS.includes(rawTab) ? rawTab : null;
+  return { player, tab };
+}
+
+/**
+ * Canonical shareable URL for the current app state. URLSearchParams handles
+ * the encoding (the "#" in Name#TAG becomes %23, so it never reads as a URL
+ * fragment). The default tab is omitted to keep bare links clean.
+ */
+export function buildShareUrl(player, tab) {
+  const params = new URLSearchParams();
+  if (player) {
+    params.set("player", `${player.name}#${player.tag}`);
+    params.set("region", player.region || "na");
+  }
+  if (tab && tab !== "dashboard" && TAB_IDS.includes(tab)) {
+    params.set("tab", tab);
+  }
+  const qs = params.toString();
+  return qs ? `/?${qs}` : "/";
+}
+
 const SQLITE_RE = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/;
+
+const MONTHS = {
+  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+};
+
+// Henrik's prose format after the weekday is stripped:
+// "June 21, 2025 6:23 PM" (minutes and the AM/PM marker are optional-robust).
+const PROSE_RE =
+  /^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})(?:\s+(\d{1,2}):(\d{2})\s*([AP]M))?$/i;
 
 export function parseDate(value) {
   if (value == null || value === "") return null;
@@ -30,10 +99,21 @@ export function parseDate(value) {
   if (m) {
     return new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`);
   }
-  // Henrik's "Saturday, June 21, 2025 6:23 PM" is UTC — strip the weekday and
-  // parse as UTC; if that fails fall back to local parsing, and callers fall
-  // back to showing the raw string when we return null.
+  // Henrik's "Saturday, June 21, 2025 6:23 PM" is UTC. new Date() parsing of
+  // that prose format is implementation-defined and Safari has historically
+  // rejected it (iOS users would silently see raw strings), so parse it by
+  // hand first and only then fall back to native parsing.
   const rest = str.replace(/^[A-Za-z]+,\s*/, "");
+  const p = rest.match(PROSE_RE);
+  if (p) {
+    const month = MONTHS[p[1].toLowerCase()];
+    if (month != null) {
+      let hours = p[4] != null ? Number(p[4]) % 12 : 0;
+      if ((p[6] || "").toUpperCase() === "PM") hours += 12;
+      const minutes = p[5] != null ? Number(p[5]) : 0;
+      return new Date(Date.UTC(Number(p[3]), month, Number(p[2]), hours, minutes));
+    }
+  }
   let d = new Date(`${rest} UTC`);
   if (Number.isNaN(d.getTime())) d = new Date(rest);
   return Number.isNaN(d.getTime()) ? null : d;

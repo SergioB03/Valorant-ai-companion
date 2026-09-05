@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="robots" content="noindex" />
+    <title>Privacy &amp; analytics — Valorant AI Companion</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20fill='%230f1923'/%3E%3Cpath%20fill='%23ff4655'%20d='M4%207l11%2014h6L8%207H4zm24%200h-6l-7%209%203%204L28%207z'%3E%3C/path%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Same design tokens as src/index.css — this page is static (no JS, no
+         analytics of its own) so the styles are inlined here. */
+      :root {
+        --bg: #0f1923;
+        --panel: rgba(23, 32, 42, 0.93);
+        --panel-2: rgba(15, 23, 32, 0.92);
+        --border: #2c3944;
+        --accent: #ff4655;
+        --text: #ece8e1;
+        --muted: #9aa7b3;
+        --cyan: #7dd3fc;
+        --cut: 12px;
+        --display: "Bebas Neue", "Arial Narrow", Impact, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 32px 20px 64px;
+      }
+      .top-glow {
+        position: fixed;
+        inset: 0 0 auto 0;
+        height: 3px;
+        background: linear-gradient(90deg, transparent, var(--accent) 30%, var(--accent) 70%, transparent);
+        pointer-events: none;
+      }
+      h1 {
+        font-family: var(--display);
+        font-size: 34px;
+        font-weight: 400;
+        font-style: italic;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        line-height: 1.05;
+        margin: 18px 0 4px;
+      }
+      .sub { color: var(--muted); font-size: 13px; margin: 0 0 24px; }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        padding: 20px;
+        position: relative;
+        margin-bottom: 16px;
+        clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%);
+      }
+      .panel::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0;
+        width: 42px; height: 3px;
+        background: var(--accent);
+      }
+      h2 {
+        font-family: var(--display);
+        font-size: 22px;
+        font-weight: 400;
+        font-style: italic;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        margin: 0 0 8px;
+      }
+      p, li { color: var(--text); }
+      .muted { color: var(--muted); }
+      ul { margin: 8px 0; padding-left: 20px; }
+      code {
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        padding: 1px 5px;
+        font-size: 13px;
+      }
+      a { color: var(--cyan); }
+      .back {
+        display: inline-block;
+        margin-bottom: 8px;
+        color: var(--muted);
+        font-size: 13px;
+        text-decoration: none;
+        border: 1px solid var(--border);
+        padding: 6px 14px;
+      }
+      .back:hover { border-color: var(--accent); color: var(--text); }
+    </style>
+  </head>
+  <body>
+    <div class="top-glow"></div>
+    <div class="wrap">
+      <a class="back" href="/">&larr; Back to the app</a>
+      <h1>Privacy <span style="color: var(--accent)">&amp; analytics</span></h1>
+      <p class="sub">Valorant AI Companion &middot; last updated September 2026</p>
+
+      <div class="panel">
+        <h2>What we collect</h2>
+        <p>
+          The app keeps a small, anonymous usage log so its operator can see
+          which features get used and whether requests fail. An event contains:
+        </p>
+        <ul>
+          <li>
+            an event name and tiny properties — e.g. which tab was opened, an
+            API <strong>endpoint template</strong> like
+            <code>/riot/matches/{name}/{tag}</code> (the template only, never
+            the actual name or tag), latency, and success/failure;
+          </li>
+          <li>
+            a <strong>random anonymous visitor id</strong> and a per-session id
+            — random UUIDs generated in your browser, tied to nothing else;
+          </li>
+          <li>
+            the page path and, once per session, the
+            <strong>referrer's host only</strong> (e.g.
+            <code>discord.com</code>, never the full URL).
+          </li>
+        </ul>
+        <p>
+          <strong>Never collected:</strong> Riot IDs, names, tags, query
+          strings, chat messages, match data, IP-based profiles, or anything
+          from third-party trackers — there are none.
+        </p>
+      </div>
+
+      <div class="panel">
+        <h2>Do Not Track</h2>
+        <p>
+          If your browser sends the Do&nbsp;Not&nbsp;Track signal, analytics is
+          <strong>fully disabled</strong> — no ids are created and no events are
+          sent.
+        </p>
+      </div>
+
+      <div class="panel">
+        <h2>Where it lives</h2>
+        <p>
+          Events go to this site's own backend and are stored in a SQLite
+          database on the operator's server. Nothing is sent to third-party
+          analytics services, and the data is not sold or shared.
+        </p>
+      </div>
+
+      <div class="panel">
+        <h2>How to clear your data</h2>
+        <p>The ids the app keeps in your browser:</p>
+        <ul>
+          <li><code>vac:vid</code> — anonymous visitor id (localStorage)</li>
+          <li><code>vac:last-player</code> — the last Riot ID you searched, so the app can restore it (localStorage, stays on your device)</li>
+          <li><code>vac:sid</code> — session id (sessionStorage, cleared when the tab closes)</li>
+        </ul>
+        <p class="muted">
+          Clear them via your browser's site-data settings, or from the console:
+          <code>localStorage.clear()</code>. A fresh random visitor id is only
+          created on your next visit (unless Do&nbsp;Not&nbsp;Track is on).
+        </p>
+      </div>
+
+      <p class="muted">
+        This is a hobby project. Powered by Claude + the HenrikDev API. Not
+        affiliated with or endorsed by Riot Games.
+      </p>
+    </div>
+  </body>
+</html>

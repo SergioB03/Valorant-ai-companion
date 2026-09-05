@@ -184,6 +184,22 @@ Three measured decisions to take only after the chunker fixes and gold-set eval 
 
 *Files:* `backend/app/services/rag_service.py`, `backend/requirements.txt`, `backend/Dockerfile`
 
+**GATE DECISION (2026-09-05, measured — see backend/tests/eval/test_rag_eval.py):**
+
+Gold set: 34 positives + 7 negative probes (`backend/tests/eval/gold_set.json`), metrics @ k=5.
+
+| stage | Hit@5 (section) | Hit@5 (source) | MRR@5 |
+|---|---|---|---|
+| baseline (old chunker, 31 positives) | 0.871 (27/31) | 1.000 | 0.745 |
+| + chunker fixes, contextual headers, de-indexed preambles, patch 13.04/13.05 ingested (34 q) | 0.941 (32/34) | 0.971 | 0.848 |
+| + in-process BM25 hybrid, RRF-fused (final tree) | **1.000 (34/34)** | **1.000** | 0.794 |
+
+1. **BM25 hybrid: IMPLEMENTED.** Hit@5 was above the 0.85 line after the chunker fixes, but the gate's second clause fired: two clear gold-set misses remained and both were lexical/proper-noun-shaped ("callouts on Ascent" — maps.md § Ascent absent from top-5; "patch 13.05 … smokes" — the 13.05 file absent entirely). rank-bm25 (0.2.2, pinned) over the same 82 chunks, RRF-fused (k=60, 16-candidate pools) with the dense results inside `_retrieve`, closed both (ranks 3/3). Cost of adoption: MRR@5 dipped 0.848 → ~0.79-0.81 (RRF shuffles a few top-1s into ranks 2–4) — accepted, because Hit@5 is what decides whether gold content reaches the 8-chunk context Claude actually reads, and it went to 1.000/1.000.
+2. **FlashRank rerank: NOT IMPLEMENTED.** Its gate ("BM25 still leaves misses") did not open — zero section-level misses remain. Adding a reranker now would be dependency and latency without a measured target.
+3. **Haiku cost/quality A/B: NOT RUN.** A defensible answer-quality A/B needs a rubric-scored loop of paid calls on both models; this implementation pass was budgeted for a handful of end-to-end checks, not bulk eval loops. The harness (gold set + `RUN_RAG_EVAL=1` eval) is in place; run the A/B as its own budgeted exercise if /meta/ask spend ever matters — note the exact-match answer cache (RA5) already removed the repeat-question cost that motivated it.
+
+Distance-floor tuning from the same runs (RA4): positives' worst best-hit 1.371, far-domain probes ≥ 1.433 → `DISTANCE_FLOOR = 1.40`; near-domain probes (CS2/LoL, current-patch win rates) measured d≈0.95–1.16 — closer than several legitimate hits, so the floor structurally cannot catch them and the system prompt carries that class (kept measured in `test_negative_probes_and_distance_floor`).
+
 ## Track: infra
 
 The AWS setup is unusually solid for a solo hobby project — OIDC push-to-deploy over SSM with no stored keys, SSM SecureString secrets, a two-factor origin lockdown, layered cost/abuse controls through claude_service._create, and an integrity-checked nightly SQLite backup to versioned S3 (both stale memory claims about missing spend caps were refuted on current main). The real gaps are all about what happens when nobody is watching: zero tests on main, deploys not actually gated on CI despite lint.yml's comment claiming so, every alert originating inside the app process so a dead box or silently failing backup timer notifies no one, no restore path at all (and the instance role is deliberately write-only to the backup bucket, so a naive restore script would AccessDenied), DEPLOYMENT.md's ops table still teaching the exact torn-copy backup method backup.sh was written to replace, and the HenrikDev 30 req/min key burned 3-4x per session with zero caching. Most of the roadmap already exists as origin/security/config-and-proxy-trust, a verified clean fast-forward from main HEAD 8491da5.

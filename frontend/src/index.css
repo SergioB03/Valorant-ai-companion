@@ -93,6 +93,12 @@ img {
   opacity: 1;
 }
 
+/* Faded-out layers stop paying for kenburns: a will-change layer animating
+   at opacity 0 still composites every frame. */
+.backdrop-layer:not(.on) {
+  animation-play-state: paused;
+}
+
 @keyframes kenburns {
   from {
     transform: scale(1) translate3d(0, 0, 0);
@@ -234,7 +240,8 @@ img {
 .search input::placeholder,
 .chat-input input::placeholder,
 .meta-form input::placeholder {
-  color: #5f6d7a;
+  /* #5f6d7a measured ~3.5:1 on the input background — below AA. */
+  color: #8a97a4;
 }
 
 .search .search-name {
@@ -519,24 +526,34 @@ img {
   }
 }
 
+/* Card pulse, rebuilt for paint hygiene: border-color/box-shadow keyframes
+   cannot be composited (a 5-weakness report used to run 6+ perpetual repaint
+   loops), so the "peak" border+glow is painted once on an ::after overlay and
+   only its opacity animates — and only for 6 beats before settling. Moving
+   the pulse off the element also means it no longer fights .rise for the
+   animation property. */
 .pulse {
-  animation: pulseCard 2s ease infinite;
+  position: relative;
 }
 
-.rise.pulse {
-  animation: rise 0.5s cubic-bezier(0.22, 0.9, 0.36, 1) both,
-    pulseCard 2s ease infinite;
+.pulse::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border: 1px solid rgba(255, 70, 85, 0.95);
+  box-shadow: inset 0 0 26px -8px rgba(255, 70, 85, 0.6);
+  opacity: 0;
+  pointer-events: none;
+  animation: pulseFade 2s ease 6;
 }
 
-@keyframes pulseCard {
+@keyframes pulseFade {
   0%,
   100% {
-    border-color: rgba(255, 70, 85, 0.45);
-    box-shadow: inset 0 0 18px -10px rgba(255, 70, 85, 0.35);
+    opacity: 0;
   }
   50% {
-    border-color: rgba(255, 70, 85, 0.95);
-    box-shadow: inset 0 0 26px -8px rgba(255, 70, 85, 0.6);
+    opacity: 1;
   }
 }
 
@@ -584,7 +601,7 @@ img {
 }
 
 .insignia-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 2px;
   text-transform: uppercase;
@@ -599,7 +616,20 @@ img {
 
 .insignia-weakness {
   --ins: var(--accent);
-  animation: pulseIns 2s ease infinite; /* slow pulsing border/text */
+  /* Slow pulse — opacity only (compositable), settling after 6 beats
+     instead of repainting box-shadow forever. The glow itself is the static
+     base .insignia box-shadow. */
+  animation: pulseInsFade 2s ease 6;
+}
+
+@keyframes pulseInsFade {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.72;
+  }
 }
 
 .insignia-tip {
@@ -612,20 +642,6 @@ img {
 
 .insignia-neutral {
   --ins: var(--neutral);
-}
-
-@keyframes pulseIns {
-  0%,
-  100% {
-    box-shadow: 0 0 6px -3px var(--ins);
-    border-color: var(--ins);
-    opacity: 1;
-  }
-  50% {
-    box-shadow: 0 0 16px 0 var(--ins);
-    border-color: #ff8a95;
-    opacity: 0.82;
-  }
 }
 
 /* Insignia cards / list rows */
@@ -725,7 +741,8 @@ img {
 .warning-text {
   margin: 2px 0 0;
   font-weight: 600;
-  animation: pulseText 2s ease infinite;
+  /* Finite: draws the eye on arrival, then stops burning paint. */
+  animation: pulseText 2s ease 6;
   flex: 1;
   min-width: 220px;
 }
@@ -1037,7 +1054,7 @@ img {
 .meter-scale {
   display: flex;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
   color: var(--muted);
@@ -1291,19 +1308,83 @@ img {
   font-size: 15px;
 }
 
+.vintage-caption {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
 .sources-row {
   margin-top: 16px;
   border-top: 1px solid var(--border);
   padding-top: 10px;
 }
 
+/* Source chips are buttons now — tap to reveal the snippet (it used to hide
+   in a hover-only title attribute, useless on touch). */
 .source-chip {
   color: var(--text);
   border-color: rgba(236, 232, 225, 0.35);
-  cursor: help;
+  gap: 7px;
+}
+
+.source-chip.open {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* When the backend marks which sources the answer drew on, the rest step back. */
+.source-chip.source-unused {
+  opacity: 0.55;
+}
+
+.source-used-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--good);
+  border: 1px solid var(--good);
+  padding: 0 5px;
+  line-height: 1.5;
+}
+
+.source-snippet {
+  margin: 10px 0 0;
+  border-left: 3px solid rgba(236, 232, 225, 0.35);
+  background: var(--panel-2);
+  padding: 10px 14px;
+  color: var(--muted);
+  font-size: 13px;
+  font-style: italic;
+  overflow-wrap: break-word;
 }
 
 /* ---------- States ---------- */
+
+/* Spinner + elapsed stopwatch + Cancel for the long Claude waits. */
+.wait-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.stopwatch {
+  /* Fixed-ish width + tabular digits so the ticking number never nudges
+     the layout. */
+  min-width: 48px;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.cancelled-note {
+  margin: 10px 0 0;
+  font-size: 13px;
+}
 
 .spinner-wrap {
   display: flex;
@@ -1434,7 +1515,7 @@ img {
   /* No pulses, no staggered entrances. */
   .rise,
   .pulse,
-  .rise.pulse,
+  .pulse::after,
   .insignia-weakness,
   .warning-text {
     animation: none;
@@ -1487,6 +1568,20 @@ img {
 
 .footer .text-block p {
   margin: 0;
+}
+
+.footer-links {
+  margin-top: 8px;
+}
+
+.footer-links a {
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.footer-links a:hover {
+  color: var(--text);
 }
 
 /* ---------- Responsive ---------- */
@@ -1592,14 +1687,8 @@ img {
     justify-content: center;
   }
 
-  .search {
-    justify-content: center;
-  }
-
-  .search .search-name {
-    flex: 1;
-    width: auto;
-  }
+  /* (The old pre-grid flex rules for .search that used to sit here conflicted
+     with the 2x2 grid defined above in this same media block — removed.) */
 
   .tilt-grid,
   .report-grid {

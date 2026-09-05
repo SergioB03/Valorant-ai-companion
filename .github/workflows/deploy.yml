@@ -49,6 +49,11 @@ jobs:
       # requirements-dev.txt deliberately omits chromadb; conftest.py stubs it,
       # so the suite runs in seconds instead of waiting on a large native build.
       - run: pip install -r backend/requirements-dev.txt
+      # Prove the RUNTIME requirements still resolve — tests install the dev
+      # file, so an unresolvable requirements.txt (pydantic/pydantic-core
+      # lockstep, 2026-09-05) sailed through CI and broke the prod image build.
+      - name: Resolve runtime requirements (dry run)
+        run: pip install --dry-run --quiet -r backend/requirements.txt
       - name: Backend tests
         run: python -m pytest backend/tests -q
         env:

@@ -9,6 +9,12 @@ updates:
     directory: /backend
     schedule:
       interval: weekly
+    # pydantic pins pydantic-core EXACTLY (lockstep); an independent core bump
+    # makes requirements.txt unresolvable (broke prod image builds twice on
+    # 2026-09-05). Bump pydantic by hand and take the matching core with it.
+    ignore:
+      - dependency-name: pydantic_core
+      - dependency-name: pydantic-core
     groups:
       python-minor-patch:
         applies-to: version-updates

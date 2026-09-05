@@ -174,3 +174,16 @@ executed** from this session (no AWS calls were made) — the exact pending step
   real AWS path. README repo tree corrected (render.yaml/vercel.json gone; scripts/, tests/,
   infra/, docs/ added) and the backups roadmap item checked off.
   copilot-instructions.md screenshot convention aligned to `docs/changes/<date>-<slug>/`.
+
+## After (live)
+
+- `after-live-desktop.png` — https://rebuy.gg via the new shareable deep link
+  (`?player=おちゃ%233555&region=na`): player resolved from the URL, backdrop rendered
+  from the self-hosted WebP (contrast the before-shot, where the 5 MB CDN splash never
+  loaded in time). Deployed via the new CI-gated pipeline (lint + backend tests +
+  frontend build all green before deploy), readiness smoke test passed.
+- Live checks: security headers present; `/api/meta/status` reports 11 docs / 82 chunks,
+  corpus vintage "patch 13.05 (2026-09-01)".
+- Pending operator steps (scripted, see DEPLOYMENT.md pre-deploy checklist):
+  arm-production.sh, restore drill, ec2-alarms, cost-guardrails, healthchecks/UptimeRobot,
+  Anthropic console cap — then retire /vac/RIOT_API_KEY.

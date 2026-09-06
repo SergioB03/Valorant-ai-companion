@@ -100,3 +100,15 @@ tilt_snapshots bounding precondition and the dead RIOT_API_KEY fallback cleanup.
   282 kB, demo fixtures split out). Flows verified end-to-end in headless Chrome:
   search → reload restore → landing ritual → autoRun (single request), URL-player
   isolation, quota state, mobile landing, share-card render.
+
+## After (live)
+
+- `after-landing.png` / `after-mobile.png` — the new landing at rebuy.gg: full-height hero
+  with glow display type, SEE THE DEMO + TRACK YOUR RIOT ID CTAs, feature showcase cards
+  entering below, trust badges, Haven splash backdrop. Fresh visits always land here now;
+  saved players are a one-tap "Jump back in" instead of an auto-hijack (#18).
+- Shipped via PR #21 (closes #18/#19/#20) through the CI gates; deploy green; /patch/
+  digests serving 200 live. Full E2E evidence (demo network isolation, ritual, quota,
+  share card) in the PR description.
+
+(Docs-only after-shot commit made directly to main per the change-record convention.)

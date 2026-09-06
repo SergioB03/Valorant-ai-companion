@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="Patch 13.05 (September 1, 2026) in one screen: ~50 changes across 5 areas, touching Chamber, Cypher, Deadlock, KAYO and more. A community digest linking to the official notes — from the Valorant AI Companion." />
+    <link rel="canonical" href="https://rebuy.gg/patch/13-05.html" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Valorant AI Companion" />
+    <meta property="og:title" content="VALORANT Patch 13.05 digest — what changed, at a glance" />
+    <meta property="og:description" content="Patch 13.05 (September 1, 2026) in one screen: ~50 changes across 5 areas, touching Chamber, Cypher, Deadlock, KAYO and more. A community digest linking to the official notes — from the Valorant AI Companion." />
+    <meta property="og:url" content="https://rebuy.gg/patch/13-05.html" />
+    <meta property="og:image" content="https://rebuy.gg/og-card.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="VALORANT Patch 13.05 digest — what changed, at a glance" />
+    <meta name="twitter:description" content="Patch 13.05 (September 1, 2026) in one screen: ~50 changes across 5 areas, touching Chamber, Cypher, Deadlock, KAYO and more. A community digest linking to the official notes — from the Valorant AI Companion." />
+    <meta name="twitter:image" content="https://rebuy.gg/og-card.png" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20fill='%230f1923'/%3E%3Cpath%20fill='%23ff4655'%20d='M4%207l11%2014h6L8%207H4zm24%200h-6l-7%209%203%204L28%207z'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <title>VALORANT Patch 13.05 digest — what changed, at a glance</title>
+    <style>
+      :root {
+        --bg: #0f1923;
+        --panel: rgba(23, 32, 42, 0.93);
+        --panel-2: rgba(15, 23, 32, 0.92);
+        --border: #2c3944;
+        --accent: #ff4655;
+        --text: #ece8e1;
+        --muted: #9aa7b3;
+        --cyan: #7dd3fc;
+        --cut: 12px;
+        --display: "Bebas Neue", "Arial Narrow", Impact, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 32px 20px 64px;
+      }
+      .top-glow {
+        position: fixed;
+        inset: 0 0 auto 0;
+        height: 3px;
+        background: linear-gradient(90deg, transparent, var(--accent) 30%, var(--accent) 70%, transparent);
+        pointer-events: none;
+      }
+      h1 {
+        font-family: var(--display);
+        font-size: 34px;
+        font-weight: 400;
+        font-style: italic;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        line-height: 1.05;
+        margin: 18px 0 4px;
+      }
+      .sub { color: var(--muted); font-size: 13px; margin: 0 0 24px; }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        padding: 20px;
+        position: relative;
+        margin-bottom: 16px;
+        clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%);
+      }
+      .panel::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0;
+        width: 42px; height: 3px;
+        background: var(--accent);
+      }
+      h2 {
+        font-family: var(--display);
+        font-size: 22px;
+        font-weight: 400;
+        font-style: italic;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        margin: 0 0 8px;
+      }
+      p, li { color: var(--text); }
+      .muted { color: var(--muted); }
+      ul { margin: 8px 0; padding-left: 20px; }
+      li { margin: 3px 0; }
+      a { color: var(--cyan); }
+      .back {
+        display: inline-block;
+        margin: 0 8px 8px 0;
+        color: var(--muted);
+        font-size: 13px;
+        text-decoration: none;
+        border: 1px solid var(--border);
+        padding: 6px 14px;
+      }
+      .back:hover { border-color: var(--accent); color: var(--text); }
+      .pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 2px; padding: 0; list-style: none; }
+      .pills li {
+        border: 1px solid var(--border);
+        background: var(--panel-2);
+        color: var(--muted);
+        font-size: 13px;
+        padding: 4px 10px;
+        margin: 0;
+      }
+      .pills li strong { color: var(--text); font-weight: 600; }
+      .patch-link {
+        font-family: var(--display);
+        font-size: 22px;
+        font-style: italic;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="top-glow"></div>
+    <div class="wrap">
+      <a class="back" href="/">&larr; Back to the app</a>
+      <a class="back" href="/patch/">All patch digests</a>
+      <h1>Patch 13.05 <span style="color: var(--accent)">digest</span></h1>
+      <p class="sub">
+        September 1, 2026 &middot; a structural summary of what the patch
+        touches &mdash; names and counts, not the notes themselves
+      </p>
+
+      <div class="panel">
+        <h2>At a glance</h2>
+        <ul class="pills">
+          <li><strong>~50</strong> changes</li> <li><strong>5</strong> areas</li> <li>Agents: <strong>Chamber, Cypher, Deadlock, KAYO, Omen, Sage, Waylay</strong></li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>Agent Updates</h2>
+        <ul>
+          <li><strong>General</strong> &middot; 3 changes, 2 of them bugfixes</li>
+          <li><strong>Chamber</strong> &middot; 1 bugfix — Headhunter</li>
+          <li><strong>Cypher</strong> &middot; 2 bugfixes — Trapwire, Cyber Cage</li>
+          <li><strong>Deadlock</strong> &middot; 1 bugfix — GravNet</li>
+          <li><strong>KAYO</strong> &middot; 1 bugfix — NULL/cmd</li>
+          <li><strong>Omen</strong> &middot; 1 bugfix — Dark Cover</li>
+          <li><strong>Sage</strong> &middot; 1 bugfix — Healing Orb</li>
+          <li><strong>Waylay</strong> &middot; 3 bugfixes — Saturate, Refract</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h2>Map Updates</h2>
+        <ul>
+          <li><strong>Lotus</strong> &middot; 1 bugfix</li>
+          <li><strong>The Range</strong> &middot; 2 changes</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h2>Cosmetic Updates</h2>
+        <ul>
+          <li><strong>General</strong> &middot; 1 change</li>
+          <li><strong>Dog Days</strong> &middot; 3 changes</li>
+          <li><strong>Run It Back V26</strong> &middot; 3 changes</li>
+          <li><strong>Champions 2026</strong> &middot; 13 changes — Broadcast Drops, FTW, Pick&#x27;Ems: Champions Shanghai, Shotcall</li>
+          <li><strong>Other</strong> &middot; 8 changes — Coinbase Partnership, &quot;CPXBlindStitch&quot;, &quot;CulturalMoments_Chuseok&quot;, VCT Americas Finals, Miscellaneous additions</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h2>Lore Updates</h2>
+        <ul>
+          <li><strong>V26 Range Lore Elements</strong> &middot; 3 changes</li>
+          <li><strong>Summit Lore Elements</strong> &middot; 1 change</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h2>Other Updates</h2>
+        <ul>
+          <li><strong>Esports</strong> &middot; 1 change</li>
+          <li><strong>Player Behavior</strong> &middot; 1 change</li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>Read the full notes</h2>
+        <p>
+          This page deliberately stops at names and counts. The actual change
+          details live in the
+          <a href="https://playvalorant.com/en-us/news/tags/patch-notes/" rel="noopener noreferrer">official
+          patch notes at playvalorant.com</a> and the
+          <a href="https://wiki.playvalorant.com/en-us/Patch_Notes/13.05" rel="noopener noreferrer">community
+          wiki page this digest was built from</a>.
+        </p>
+        <p class="muted">
+          Want to know what it means for your games? Ask the
+          <a href="/">Meta Q&amp;A in the app</a> &mdash; it has these notes in
+          its knowledge base.
+        </p>
+      </div>
+
+      <div class="panel">
+        <h2>Attribution &amp; license</h2>
+        <p class="muted">
+          Derived from the community <a href="https://wiki.playvalorant.com/en-us/Patch_Notes/13.05" rel="noopener noreferrer">VALORANT Wiki page for patch 13.05</a>, adapted under <a href="https://creativecommons.org/licenses/by-sa/3.0/" rel="noopener noreferrer">CC BY-SA 3.0</a>
+          &mdash; see the source page for its authors. This digest text is
+          likewise available under CC BY-SA 3.0.
+        </p>
+        <p class="muted">
+          This is a summary, <strong>not official Riot text</strong>: for exact
+          values always read the
+          <a href="https://playvalorant.com/en-us/news/tags/patch-notes/" rel="noopener noreferrer">official
+          patch notes at playvalorant.com</a>. This project is a hobby project,
+          not affiliated with or endorsed by Riot Games.
+        </p>
+      </div>
+    </div>
+  </body>
+</html>

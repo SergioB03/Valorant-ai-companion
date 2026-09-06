@@ -29,10 +29,10 @@ def ready(response: Response):
     from app.services import rag_service
 
     checks = {
-        # Accepts the legacy RIOT_API_KEY name during the SSM migration.
-        "match_provider_configured": bool(
-            os.getenv("HENRIK_API_KEY") or os.getenv("RIOT_API_KEY")
-        ),
+        # HENRIK_API_KEY is canonical; the legacy RIOT_API_KEY fallback is gone
+        # (the SSM parameter was deleted after the verified rename deploy), so
+        # readiness must not report a name the client code no longer reads.
+        "match_provider_configured": bool(os.getenv("HENRIK_API_KEY")),
         "claude_configured": bool(os.getenv("ANTHROPIC_API_KEY")),
         # RAG is an optional feature: absent means /meta degrades, not that the
         # service is unhealthy, so it is reported but does not drive the status.

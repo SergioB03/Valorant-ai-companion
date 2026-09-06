@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS tilt_snapshots (
     tilt_score INTEGER,
     tilt_level TEXT,
     matches_analyzed INTEGER,
-    report_json TEXT
+    report_json TEXT  -- legacy: no longer written (see save_snapshot), cleared by MIGRATIONS
 );
 
 CREATE TABLE IF NOT EXISTS coach_sessions (
@@ -82,10 +82,24 @@ CREATE TABLE IF NOT EXISTS meta_answer_cache (
 # coach conversations against the searched Riot ID, where anyone could read it
 # back via GET /mental/profile. Nothing writes those columns any more, and this
 # clears anything an existing database still holds.
+#
+# tilt_snapshots.report_json gets the same treatment: full tilt reports (per-map
+# and per-agent breakdowns of other people's match data) were persisted per
+# searched Riot ID, and grep confirms nothing ever read the column back. The
+# scalar columns carry everything /mental/profile serves; clearing the blobs
+# shrinks the project's largest Riot-policy exposure before the Wave-3
+# returning-player ritual deliberately grows this table's write rate.
 MIGRATIONS = """
 UPDATE coach_sessions SET user_message = NULL, coach_reply = NULL
     WHERE user_message IS NOT NULL OR coach_reply IS NOT NULL;
+UPDATE tilt_snapshots SET report_json = NULL WHERE report_json IS NOT NULL;
 """
+
+# Bounds for tilt_snapshots (the analytics table has its own pair below).
+# The cap bounds how much history one searched player can accumulate; the
+# retention window bounds how long any of it lives. Both env-tunable.
+TILT_SNAPSHOTS_PER_PLAYER = int(os.getenv("TILT_SNAPSHOTS_PER_PLAYER", "30"))
+TILT_RETENTION_DAYS = int(os.getenv("TILT_RETENTION_DAYS", "180"))
 
 
 _initialized = False
@@ -114,19 +128,33 @@ def get_conn() -> sqlite3.Connection:
 
 
 def save_snapshot(riot_id: str, report: dict):
+    """Persist the numbers of one tilt report — never the report itself.
+
+    report_json is deliberately not written (the column stays NULL; nothing
+    ever read it, and storing full breakdowns of other people's public match
+    data is the project's largest Riot-policy exposure). The insert then
+    prunes the same player's oldest rows so no riot_id accumulates more than
+    TILT_SNAPSHOTS_PER_PLAYER snapshots, in the same transaction — a crash
+    between the two can never leave the cap breached.
+    """
     conn = get_conn()
     try:
         with conn:
             conn.execute(
-                "INSERT INTO tilt_snapshots (riot_id, tilt_score, tilt_level, matches_analyzed, report_json) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO tilt_snapshots (riot_id, tilt_score, tilt_level, matches_analyzed) "
+                "VALUES (?, ?, ?, ?)",
                 (
                     riot_id,
                     report.get("tilt_score"),
                     report.get("tilt_level"),
                     report.get("matches_analyzed"),
-                    json.dumps(report),
                 ),
+            )
+            conn.execute(
+                "DELETE FROM tilt_snapshots WHERE riot_id = ? AND id NOT IN ("
+                "SELECT id FROM tilt_snapshots WHERE riot_id = ? "
+                "ORDER BY id DESC LIMIT ?)",
+                (riot_id, riot_id, TILT_SNAPSHOTS_PER_PLAYER),
             )
     finally:
         conn.close()
@@ -244,6 +272,13 @@ def _prune_analytics(conn) -> None:
 
     The ceiling is the part that matters under abuse: a flood can blow past
     500k rows well inside the retention window, so age alone is not a bound.
+
+    tilt_snapshots piggybacks its retention sweep on the same cadence: the
+    per-player cap in save_snapshot bounds how much history one riot_id can
+    hold, and this bounds how long any of it lives — snapshots of players
+    nobody has looked up in TILT_RETENTION_DAYS should not sit on disk
+    forever. Analytics ingest is the app's one steady write path, so riding
+    along here needs no timer of its own.
     """
     conn.execute(
         "DELETE FROM analytics_events WHERE created_at < datetime('now', ?)",
@@ -253,6 +288,10 @@ def _prune_analytics(conn) -> None:
         "DELETE FROM analytics_events WHERE id <= "
         "(SELECT MAX(id) - ? FROM analytics_events)",
         (ANALYTICS_MAX_ROWS,),
+    )
+    conn.execute(
+        "DELETE FROM tilt_snapshots WHERE created_at < datetime('now', ?)",
+        (f"-{TILT_RETENTION_DAYS} days",),
     )
 
 

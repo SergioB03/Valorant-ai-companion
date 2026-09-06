@@ -174,7 +174,10 @@
           <li><code>vac:recent-players</code> — the last few Riot IDs you searched, for the quick-switch chips; one tap on "Clear recent" in the app removes it (localStorage, stays on your device)</li>
           <li><code>vac:analysis:&lt;player&gt;</code> — the last AI performance analysis you ran for a player, so a reload doesn't cost another AI call (localStorage, stays on your device)</li>
           <li><code>vac:tilt:&lt;player&gt;</code> — the last tilt report you ran for a player, same reason (localStorage, stays on your device)</li>
+          <li><code>vac:tilt-prompts</code> — a small counter (date + number, no player data) capping how often the home screen offers a one-tap tilt check (localStorage, stays on your device)</li>
           <li><code>vac:sid</code> — session id (sessionStorage, cleared when the tab closes)</li>
+          <li><code>vac:session-player</code> — the player you're currently tracking, so a reload in the same tab doesn't kick you back to the home screen (sessionStorage, cleared when the tab closes)</li>
+          <li><code>vac:ritual-shown</code> — a yes/no flag so the "run a tilt check" nudge appears at most once per session (sessionStorage, cleared when the tab closes)</li>
         </ul>
         <p class="muted">
           Coach chat messages are never stored — not in your browser, not on

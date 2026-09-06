@@ -1,3 +1,8 @@
+import { useEffect, useRef, useState } from "react";
+import { getQuotaLimit, isDemoMode } from "../api.js";
+import { buildShareUrl } from "../utils.js";
+import { track } from "../analytics.js";
+
 export function Spinner({ label }) {
   return (
     <div className="spinner-wrap" role="status" aria-live="polite">
@@ -49,6 +54,89 @@ export function EmptyState({ title, body }) {
       <h3>{title}</h3>
       {body ? <p>{body}</p> : null}
     </div>
+  );
+}
+
+/**
+ * Error rendering for the AI-spending actions. Three different 429s exist
+ * (daily quota, per-minute slowapi, Henrik upstream), so the friendly
+ * "resets at midnight" copy is keyed ONLY on the X-Quota-Exhausted header
+ * that api.js lifts into err.quotaExhausted — never on the status alone.
+ * The daily-quota state deliberately has no Retry button: retrying cannot
+ * succeed until the UTC-midnight reset.
+ */
+export function AIErrorNotice({ error, onRetry }) {
+  if (!error) return null;
+  if (error.quotaExhausted) {
+    const hours =
+      Number.isFinite(error.retryAfterSeconds) && error.retryAfterSeconds > 0
+        ? Math.max(1, Math.round(error.retryAfterSeconds / 3600))
+        : null;
+    return (
+      <div className="quota-notice" role="status">
+        <span className="quota-icon" aria-hidden="true">
+          !
+        </span>
+        <span>
+          Out of free AI actions today — resets at midnight UTC
+          {hours != null ? ` (about ${hours}h from now)` : ""}. The dashboard
+          and your saved reports still work.
+        </span>
+      </div>
+    );
+  }
+  const message =
+    error.status === 429
+      ? "Slow down a moment — that's the per-minute limit, not your daily quota. Try again in a few seconds."
+      : error.message;
+  return <ErrorBanner message={message} onRetry={onRetry} />;
+}
+
+/**
+ * Static honest-cost caption for the three AI buttons. The limit comes from
+ * the X-Quota-Limit header (last seen value) — never hardcoded, since the
+ * backend's quota is env-configurable. Hidden in demo mode: sample data
+ * spends nothing.
+ */
+export function AIQuotaCaption() {
+  if (isDemoMode()) return null;
+  const limit = getQuotaLimit();
+  return (
+    <p className="ai-caption">
+      Uses 1 of your {limit != null ? `${limit} ` : ""}free daily AI actions.
+    </p>
+  );
+}
+
+/**
+ * The trivial "Copy link" affordance for the shareable deep links. Copies
+ * the canonical share URL for the given player+tab; the analytics event
+ * carries the tab only — never an identity.
+ */
+export function CopyLinkButton({ player, tab }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  async function copy() {
+    const url = `${window.location.origin}${buildShareUrl(player, tab)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      track("copy_link", { tab });
+      setCopied(true);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked — the address bar still carries the same URL */
+    }
+  }
+
+  if (typeof navigator === "undefined" || !navigator.clipboard) return null;
+  return (
+    <button type="button" className="chip chip-btn" onClick={copy}>
+      {copied ? "Link copied ✓" : "Copy link"}
+    </button>
   );
 }
 

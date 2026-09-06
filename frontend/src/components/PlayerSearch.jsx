@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { REGIONS } from "../utils.js";
 
-export default function PlayerSearch({ initial, onSearch }) {
+// `nameRef` (optional) exposes the name input so the landing's "Track your
+// Riot ID" CTA can focus it.
+export default function PlayerSearch({ initial, onSearch, nameRef }) {
   const [name, setName] = useState(initial ? initial.name : "");
   const [tag, setTag] = useState(initial ? initial.tag : "");
   const [region, setRegion] = useState(initial ? initial.region : "na");
@@ -25,6 +27,7 @@ export default function PlayerSearch({ initial, onSearch }) {
   return (
     <form className="search" onSubmit={handleSubmit}>
       <input
+        ref={nameRef}
         className="search-name"
         value={name}
         onChange={(e) => setName(e.target.value)}

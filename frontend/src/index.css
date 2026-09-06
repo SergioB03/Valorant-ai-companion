@@ -155,6 +155,14 @@ img {
   display: flex;
   align-items: center;
   gap: 10px;
+  /* The brand is a link home (back to the landing) now. */
+  color: inherit;
+  text-decoration: none;
+}
+
+.brand:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .brand-logo {
@@ -240,38 +248,173 @@ img {
   color: var(--text);
 }
 
-/* ---------- Landing hero (no player selected yet) ---------- */
+/* ---------- Landing (no player selected yet) ----------
+   A real landing page, not a taller empty state: full-height hero with the
+   demo + track CTAs, the returning-player "Jump back in" card, and the
+   three-feature showcase row. All entrances are CSS .rise (finite, killed
+   under prefers-reduced-motion), so the landing costs nothing after load. */
 
-.hero {
-  margin-top: 16px;
+.landing {
+  display: flex;
+  flex-direction: column;
+}
+
+.landing-hero {
+  /* Full-height feel while leaving the header + trust rows visible; the
+     feature row peeks below the fold as the scroll cue. */
+  min-height: min(560px, calc(100svh - 320px));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 18px;
+  padding: 40px 0 12px;
 }
 
 .hero-title {
-  margin: 0 0 10px;
-  max-width: 720px;
+  margin: 0;
+  max-width: 860px;
   font-family: var(--display);
-  font-size: 34px;
+  font-size: clamp(34px, 5.6vw, 62px);
   font-weight: 400;
   font-style: italic;
-  letter-spacing: 2.5px;
+  letter-spacing: 3px;
   text-transform: uppercase;
-  line-height: 1.1;
+  line-height: 1.06;
+  /* Same finite entrance as everything else on the landing. */
+  animation: rise 0.5s cubic-bezier(0.22, 0.9, 0.36, 1) both;
 }
 
 .hero-title span {
   color: var(--accent);
+  text-shadow: 0 0 28px rgba(255, 70, 85, 0.35);
 }
 
 .hero-sub {
-  margin: 0 0 10px;
+  margin: 0;
   max-width: 680px;
-  font-size: 15px;
+  font-size: 16px;
+  line-height: 1.6;
 }
 
-.hero-cta {
+.hero-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.btn.big {
+  padding: 15px 30px;
+  font-size: 15px;
+  letter-spacing: 2px;
+}
+
+.hero-fine {
   margin: 0;
   max-width: 680px;
   font-size: 13px;
+}
+
+/* Jump back in — the saved player's one-tap return, with the Wave-3 ritual
+   copy when it hasn't been shown yet this session. */
+.jump-card {
+  margin-top: 10px;
+  max-width: 680px;
+  border-color: rgba(255, 70, 85, 0.4);
+}
+
+.ritual-copy {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.jump-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.cta-tag {
+  opacity: 0.75;
+  font-weight: 500;
+}
+
+.jump-card .recent-row {
+  margin-top: 12px;
+}
+
+/* Three-feature showcase row — insignia cards in the app's own sentiment
+   language (Omen red / Sage cyan / Cypher off-white). */
+.feature-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin: 26px 0 8px;
+}
+
+.feature-card {
+  --ins: var(--neutral);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--ins);
+  padding: 20px;
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% calc(100% - var(--cut)),
+    calc(100% - var(--cut)) 100%,
+    0 100%
+  );
+  transition: transform 0.18s ease, border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.feature-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--ins);
+  box-shadow: 0 14px 34px -20px var(--ins);
+}
+
+.feature-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.feature-avatar {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(13, 21, 29, 0.8);
+  border: 1px solid var(--ins);
+  box-shadow: 0 0 16px -7px var(--ins);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
+}
+
+.feature-title {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 24px;
+  font-weight: 400;
+  font-style: italic;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.feature-body {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+  flex: 1;
 }
 
 /* ---------- Recent players quick switcher ---------- */
@@ -1465,6 +1608,89 @@ img {
   overflow-wrap: break-word;
 }
 
+/* ---------- Demo mode ---------- */
+
+/* Persistent "Sample data" marker in the tracking line. */
+.demo-chip {
+  color: var(--warn);
+  border-color: var(--warn);
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.demo-exit {
+  font-size: 11px;
+}
+
+.demo-chat-note {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+/* ---------- AI quota (honest-cost caption + exhausted state) ---------- */
+
+.ai-caption {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* Amber, deliberately calm: the daily cap is the product working as
+   designed, not an error — and there is no Retry button on purpose. */
+.quota-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(250, 204, 21, 0.5);
+  border-left: 3px solid var(--warn);
+  background: rgba(250, 204, 21, 0.08);
+  padding: 12px 14px;
+  font-size: 14px;
+  margin-top: 10px;
+}
+
+.quota-icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--warn);
+  color: #0f1923;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+/* ---------- Share row (tilt-card PNG) ---------- */
+
+.share-row {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.share-note {
+  font-size: 12px;
+}
+
+/* ---------- Patch digest link (MetaTab) ---------- */
+
+.patch-link-line {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+}
+
+.patch-link-line a {
+  color: var(--cyan);
+  text-underline-offset: 3px;
+}
+
 /* ---------- States ---------- */
 
 /* Spinner + elapsed stopwatch + Cancel for the long Claude waits. */
@@ -1621,19 +1847,22 @@ img {
   .pulse,
   .pulse::after,
   .insignia-weakness,
+  .hero-title,
   .warning-text {
     animation: none;
   }
 
   .btn,
   .tab::after,
-  .chip-btn {
+  .chip-btn,
+  .feature-card {
     transition: none;
   }
 
   .btn.accent:hover:not(:disabled),
   .btn.ghost:hover:not(:disabled),
-  .btn.accent:active:not(:disabled) {
+  .btn.accent:active:not(:disabled),
+  .feature-card:hover {
     transform: none;
   }
 }
@@ -1802,6 +2031,21 @@ img {
     grid-template-columns: 1fr;
   }
 
+  /* Landing: stack the feature cards, relax the full-height push (mobile
+     browser chrome makes 100svh jumpy anyway). */
+  .feature-row {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-hero {
+    min-height: 0;
+    padding-top: 26px;
+  }
+
+  .hero-actions .btn.big {
+    flex: 1 1 auto;
+  }
+
   .backdrop-map {
     display: none;
   }
@@ -1864,6 +2108,7 @@ img {
   }
 
   .hero-title {
-    font-size: 26px;
+    font-size: 30px;
+    letter-spacing: 2px;
   }
 }

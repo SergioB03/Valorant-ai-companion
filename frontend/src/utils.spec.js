@@ -1,13 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DEMO_PLAYER,
+  PROMPTED_TILT_CAP,
   RECENT_PLAYERS_MAX,
   addRecentPlayer,
   buildShareUrl,
+  bumpPromptedChecks,
+  isDemoPlayer,
   parseDate,
   parseRecentPlayers,
   parseShareParams,
+  parseStoredPlayer,
+  promptedChecksToday,
+  resolveInitialPlayer,
   splitParagraphs,
   stripMarkdown,
+  tiltRitualCopy,
+  utcDayKey,
 } from "./utils.js";
 
 describe("parseDate", () => {
@@ -239,6 +248,124 @@ describe("parseRecentPlayers", () => {
     expect(parseRecentPlayers('{"name":"Jett"}')).toEqual([]);
     expect(parseRecentPlayers(null)).toEqual([]);
     expect(parseRecentPlayers(undefined)).toEqual([]);
+  });
+});
+
+describe("resolveInitialPlayer — the landing routing decision", () => {
+  const url = { name: "Boaster", tag: "123", region: "eu" };
+  const session = JSON.stringify({ name: "Jett", tag: "1234", region: "na" });
+
+  it("URL player wins over the session marker", () => {
+    expect(resolveInitialPlayer(url, session)).toEqual({
+      player: url,
+      source: "url",
+    });
+  });
+
+  it("falls back to the session marker when there is no URL player", () => {
+    expect(resolveInitialPlayer(null, session)).toEqual({
+      player: { name: "Jett", tag: "1234", region: "na" },
+      source: "active",
+    });
+  });
+
+  it("lands (null player) when neither exists — never reads vac:last-player", () => {
+    expect(resolveInitialPlayer(null, null)).toEqual({
+      player: null,
+      source: null,
+    });
+  });
+
+  it("treats a corrupt or junk session marker as absent", () => {
+    expect(resolveInitialPlayer(null, "{oops").player).toBeNull();
+    expect(resolveInitialPlayer(null, '"a string"').player).toBeNull();
+    expect(resolveInitialPlayer(null, '{"name":"NoTag"}').player).toBeNull();
+  });
+
+  it("rejects the demo sentinel from both inputs (tampered storage, leaked URL)", () => {
+    const demoRaw = JSON.stringify(DEMO_PLAYER);
+    expect(resolveInitialPlayer(null, demoRaw).player).toBeNull();
+    expect(resolveInitialPlayer({ ...DEMO_PLAYER }, null).player).toBeNull();
+  });
+
+  it("normalizes an unknown region in the session marker", () => {
+    const raw = JSON.stringify({ name: "A", tag: "B", region: "mars" });
+    expect(resolveInitialPlayer(null, raw).player.region).toBe("na");
+  });
+});
+
+describe("parseStoredPlayer", () => {
+  it("round-trips a valid player", () => {
+    const raw = JSON.stringify({ name: "Sage", tag: "1", region: "ap" });
+    expect(parseStoredPlayer(raw)).toEqual({ name: "Sage", tag: "1", region: "ap" });
+  });
+
+  it("returns null for empty, corrupt and demo values", () => {
+    expect(parseStoredPlayer(null)).toBeNull();
+    expect(parseStoredPlayer("")).toBeNull();
+    expect(parseStoredPlayer("{bad")).toBeNull();
+    expect(parseStoredPlayer(JSON.stringify(DEMO_PLAYER))).toBeNull();
+  });
+});
+
+describe("demo sentinel exclusion", () => {
+  it("isDemoPlayer matches case-insensitively via playerKey", () => {
+    expect(isDemoPlayer({ name: "demo", tag: "vac", region: "na" })).toBe(true);
+    expect(isDemoPlayer({ name: "Demo", tag: "VAC1", region: "na" })).toBe(false);
+    expect(isDemoPlayer(null)).toBe(false);
+  });
+
+  it("never enters the recents list — add or parse", () => {
+    expect(addRecentPlayer([], { ...DEMO_PLAYER })).toEqual([]);
+    const raw = JSON.stringify([
+      DEMO_PLAYER,
+      { name: "Jett", tag: "1234", region: "eu" },
+    ]);
+    expect(parseRecentPlayers(raw)).toEqual([
+      { name: "Jett", tag: "1234", region: "eu" },
+    ]);
+  });
+});
+
+describe("tilt ritual copy + prompted-check soft cap", () => {
+  const NOW = Date.UTC(2026, 8, 5, 20, 0, 0);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("invites a first check when there is no timestamp", () => {
+    expect(tiltRitualCopy(null, NOW)).toMatch(/first tilt check/);
+    expect(tiltRitualCopy(Number.NaN, NOW)).toMatch(/first tilt check/);
+  });
+
+  it("varies the copy by how long ago the last check was", () => {
+    const h = 3_600_000;
+    expect(tiltRitualCopy(NOW - 2 * h, NOW)).toMatch(/back for another queue/);
+    expect(tiltRitualCopy(NOW - 24 * h, NOW)).toMatch(/see where your mental's at/);
+    expect(tiltRitualCopy(NOW - 100 * h, NOW)).toMatch(/Been a while/);
+  });
+
+  it("utcDayKey buckets by UTC date", () => {
+    expect(utcDayKey(NOW)).toBe("2026-09-05");
+  });
+
+  it("counts, bumps and resets the prompted-check counter by day", () => {
+    const day = utcDayKey(NOW);
+    expect(promptedChecksToday(null, day)).toBe(0);
+    expect(promptedChecksToday("{junk", day)).toBe(0);
+    let raw = bumpPromptedChecks(null, day);
+    raw = bumpPromptedChecks(raw, day);
+    expect(promptedChecksToday(raw, day)).toBe(2);
+    // Yesterday's counter does not carry into today.
+    expect(promptedChecksToday(raw, "2026-09-06")).toBe(0);
+    // The cap constant is what the landing checks against.
+    expect(PROMPTED_TILT_CAP).toBeGreaterThan(0);
   });
 });
 

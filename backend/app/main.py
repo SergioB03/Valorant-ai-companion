@@ -60,7 +60,20 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "X-Admin-Token"],
+    # The quota interface the frontend reads (see app/deps.py ai_quota):
+    # without these, cross-origin JS can't see the headers at all.
+    expose_headers=["X-Quota-Exhausted", "X-Quota-Limit", "Retry-After"],
     max_age=3600,
+)
+
+# Endpoints that spend AI money. Their responses are per-caller (and now carry
+# per-caller quota headers), so neither CloudFront nor the browser may ever
+# cache them — a cached copy would hand one visitor another's answer/quota.
+AI_SPEND_PATH_PREFIXES = (
+    "/claude/analyze",
+    "/mental/tilt-check",
+    "/mental/coach",
+    "/meta/ask",
 )
 
 
@@ -76,6 +89,10 @@ async def security_headers(request: Request, call_next):
     to https://localhost.
     """
     response = await call_next(request)
+    if request.url.path.startswith(AI_SPEND_PATH_PREFIXES):
+        # Set unconditionally (not setdefault): no-store must win on every
+        # response from these paths, success and error alike.
+        response.headers["Cache-Control"] = "no-store"
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")

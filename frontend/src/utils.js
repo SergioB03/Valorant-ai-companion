@@ -21,6 +21,16 @@ export function playerKey(player) {
 // shareable-URL parser must agree on what a valid region is.
 export const REGIONS = ["na", "eu", "ap", "kr"];
 
+// The demo player sentinel (Wave 2). Clearly fake and unclaimable — Riot
+// rejects tags under 3 chars from sign-up flows rarely, so the guard is the
+// code, not the name: this identity must never reach the network, storage
+// (vac:last-player / vac:recent-players / vac:session-player) or analytics.
+export const DEMO_PLAYER = Object.freeze({ name: "Demo", tag: "VAC", region: "na" });
+
+export function isDemoPlayer(player) {
+  return Boolean(player) && playerKey(player) === playerKey(DEMO_PLAYER);
+}
+
 // Must match the tab ids in App.jsx's TABS.
 export const TAB_IDS = ["dashboard", "mental", "analysis", "meta"];
 
@@ -109,7 +119,7 @@ export function parseRecentPlayers(raw) {
   const seen = new Set();
   for (const item of list) {
     const entry = sanitizeRecentPlayer(item);
-    if (!entry) continue;
+    if (!entry || isDemoPlayer(entry)) continue;
     const key = playerKey(entry);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -127,9 +137,101 @@ export function parseRecentPlayers(raw) {
 export function addRecentPlayer(list, player, cap = RECENT_PLAYERS_MAX) {
   const base = Array.isArray(list) ? list : [];
   const entry = sanitizeRecentPlayer(player);
-  if (!entry) return base;
+  // The demo sentinel is not a real player — it never enters the recents.
+  if (!entry || isDemoPlayer(entry)) return base;
   const key = playerKey(entry);
   return [entry, ...base.filter((p) => playerKey(p) !== key)].slice(0, cap);
+}
+
+// ---------- Landing routing decision (pure, unit-tested) ----------
+// URL param > same-session marker > landing. vac:last-player deliberately no
+// longer auto-loads anything — it powers the landing's "Jump back in" card
+// and search prefill only (the owner kept landing on a test user's dashboard
+// and never saw the hero).
+
+/**
+ * Parse one stored player blob (vac:last-player / vac:session-player) into a
+ * validated player or null. Same defensive posture as the recents parser:
+ * corrupt JSON, junk shapes and unknown regions degrade, never throw — and
+ * the demo sentinel is rejected outright (it must never enter real-player
+ * state, even via tampered storage).
+ */
+export function parseStoredPlayer(raw) {
+  if (!raw) return null;
+  let p;
+  try {
+    p = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const entry = sanitizeRecentPlayer(p);
+  if (!entry || isDemoPlayer(entry)) return null;
+  return entry;
+}
+
+/**
+ * The landing decision: a ?player= URL param wins (explicit intent, tracked
+ * view); else the same-session marker restores the tab's own player (so a
+ * mid-session reload doesn't eject you); else the landing page, always.
+ * Returns { player, source } where source is "url" | "active" | null.
+ */
+export function resolveInitialPlayer(urlPlayer, sessionRaw) {
+  if (urlPlayer && !isDemoPlayer(urlPlayer)) {
+    return { player: urlPlayer, source: "url" };
+  }
+  const sessionPlayer = parseStoredPlayer(sessionRaw);
+  if (sessionPlayer) return { player: sessionPlayer, source: "active" };
+  return { player: null, source: null };
+}
+
+// ---------- "Tilt check between queues" ritual (Wave 3) ----------
+// Time-based copy for the landing's Jump back in card, driven by the saved
+// tilt report's timestamp (vac:tilt:<player> — no extra storage key needed).
+// The check itself only ever fires on an explicit tap.
+
+/** Prompted (one-tap auto-run) tilt checks are soft-capped client-side. */
+export const PROMPTED_TILT_CAP = 3;
+
+/** UTC day bucket for the soft cap, e.g. "2026-09-05". */
+export function utcDayKey(now = Date.now()) {
+  return new Date(now).toISOString().slice(0, 10);
+}
+
+/** Count of prompted checks recorded for `dayKey` in the raw stored value. */
+export function promptedChecksToday(raw, dayKey) {
+  try {
+    const v = JSON.parse(raw);
+    if (v && v.day === dayKey && Number.isFinite(v.count)) {
+      return Math.max(0, Math.floor(v.count));
+    }
+  } catch {
+    /* corrupt/absent — counts as zero */
+  }
+  return 0;
+}
+
+/** New raw value with one more prompted check recorded for `dayKey`. */
+export function bumpPromptedChecks(raw, dayKey) {
+  return JSON.stringify({ day: dayKey, count: promptedChecksToday(raw, dayKey) + 1 });
+}
+
+/**
+ * Returning-player ritual copy. `lastCheckAt` is the epoch-ms timestamp of
+ * the saved player's last tilt check (null/undefined when none saved).
+ * Game framing only — a nudge between queues, never a nag.
+ */
+export function tiltRitualCopy(lastCheckAt, now = Date.now()) {
+  if (lastCheckAt == null || !Number.isFinite(lastCheckAt)) {
+    return "Queueing tonight? Run your first tilt check — it takes about 20 seconds.";
+  }
+  const hours = (now - lastCheckAt) / 3_600_000;
+  if (hours < 12) {
+    return `Last tilt check ${relativeDate(lastCheckAt)} — back for another queue?`;
+  }
+  if (hours < 72) {
+    return `Your last tilt check was ${relativeDate(lastCheckAt)} — see where your mental's at before you queue.`;
+  }
+  return `Been a while — your last tilt check was ${relativeDate(lastCheckAt)}. Get a fresh read before you queue.`;
 }
 
 const SQLITE_RE = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/;

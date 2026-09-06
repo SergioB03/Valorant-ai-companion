@@ -45,13 +45,16 @@ class TestReadiness:
         assert r.status_code == 503
         assert r.json()["checks"]["claude_configured"] is False
 
-    def test_legacy_key_name_still_counts_as_configured(self, client, monkeypatch):
-        """Production still serves /vac/RIOT_API_KEY from SSM during the rename."""
+    def test_legacy_key_name_no_longer_counts_as_configured(self, client, monkeypatch):
+        """/vac/RIOT_API_KEY is deleted and riot_service no longer reads the
+        name — readiness reporting 'configured' off a variable the client code
+        ignores would hide a real outage."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
         monkeypatch.delenv("HENRIK_API_KEY", raising=False)
         monkeypatch.setenv("RIOT_API_KEY", "HDEV-legacy")
         r = client.get("/health/ready")
-        assert r.json()["checks"]["match_provider_configured"] is True
+        assert r.status_code == 503
+        assert r.json()["checks"]["match_provider_configured"] is False
 
     def test_rag_absence_does_not_make_us_unready(self, client, monkeypatch):
         """RAG is optional: without it /meta degrades, the service does not."""
@@ -62,9 +65,10 @@ class TestReadiness:
 
 class TestKeyMigration:
     """
-    infra/deploy.sh writes every /vac/* SSM parameter into backend/.env, so the
-    code must keep reading the old name until that parameter is renamed --
-    otherwise the next deploy takes the app down.
+    The HENRIK_API_KEY rename is complete: /vac/HENRIK_API_KEY is in SSM and
+    the legacy /vac/RIOT_API_KEY parameter is deleted. These pin the end state
+    -- only the canonical name is read, and a stray legacy variable neither
+    substitutes for it nor overrides it.
     """
 
     @staticmethod
@@ -77,13 +81,13 @@ class TestKeyMigration:
         importlib.reload(riot_service)
         return riot_service.HENRIK_API_KEY
 
-    def test_new_name_is_used(self):
+    def test_canonical_name_is_used(self):
         assert self._reload_with({"HENRIK_API_KEY": "new"}) == "new"
 
-    def test_legacy_name_still_works(self):
-        assert self._reload_with({"RIOT_API_KEY": "legacy"}) == "legacy"
+    def test_legacy_name_is_no_longer_read(self):
+        assert self._reload_with({"RIOT_API_KEY": "legacy"}) is None
 
-    def test_new_name_wins_when_both_are_set(self):
+    def test_legacy_name_cannot_override_the_canonical_one(self):
         assert self._reload_with({"HENRIK_API_KEY": "new", "RIOT_API_KEY": "old"}) == "new"
 
     def teardown_method(self):

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { getAccount, getMatches } from "../api.js";
+import { getAccount, getMatches, isDemoMode } from "../api.js";
 import { relativeDate } from "../utils.js";
-import { ErrorBanner, EmptyState, Skeleton } from "./common.jsx";
+import { ErrorBanner, EmptyState, Skeleton, CopyLinkButton } from "./common.jsx";
 import AnimatedNumber from "./AnimatedNumber.jsx";
 import { useGSAP, revealStagger, revealIn } from "../anim.js";
 import { track } from "../analytics.js";
@@ -132,10 +132,14 @@ export default function Dashboard({ player }) {
       if (!alive) return;
       if (!searchTracked.current) {
         searchTracked.current = true;
-        track("player_search", {
-          region: player.region,
-          found: accountRes.status === "fulfilled",
-        });
+        // Demo fires demo_started (in App) and nothing else — the sample
+        // player must never look like a real search in the funnel.
+        if (!isDemoMode()) {
+          track("player_search", {
+            region: player.region,
+            found: accountRes.status === "fulfilled",
+          });
+        }
       }
       const account =
         accountRes.status === "fulfilled" ? accountRes.value : null;
@@ -222,6 +226,11 @@ export default function Dashboard({ player }) {
                 <span className="chip">
                   {(data.region || player.region || "").toUpperCase()}
                 </span>
+                {/* Deep links shipped with zero UI affordance — this is it.
+                    Hidden in demo (a Demo#VAC link would just 404). */}
+                {!isDemoMode() ? (
+                  <CopyLinkButton player={player} tab="dashboard" />
+                ) : null}
               </div>
             </div>
           </div>

@@ -12,12 +12,11 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 # ---- HENRIK UNOFFICIAL RIOT API (active)
 
 # The provider is HenrikDev, not Riot. The variable was named RIOT_API_KEY back
-# when the official Riot API was still the plan; that plan is gone, so the new
-# name is canonical. The old one is still accepted because production reads its
-# environment from SSM (/vac/*) via infra/deploy.sh -- renaming the parameter and
-# the code in one step would break the running app between the two. Add
-# /vac/HENRIK_API_KEY, deploy, then delete /vac/RIOT_API_KEY and this fallback.
-HENRIK_API_KEY = os.getenv("HENRIK_API_KEY") or os.getenv("RIOT_API_KEY")
+# when the official Riot API was still the plan; that plan is gone and so is the
+# migration: /vac/HENRIK_API_KEY is in SSM, the deploy was verified, and the
+# legacy /vac/RIOT_API_KEY parameter is deleted. HENRIK_API_KEY is the only
+# name read anywhere.
+HENRIK_API_KEY = os.getenv("HENRIK_API_KEY")
 HENRIK_BASE_URL = "https://api.henrikdev.xyz/valorant"
 
 
@@ -75,7 +74,7 @@ async def _henrik_get(url: str, params: dict | None = None, ttl: float | None = 
     in-process TTL cache. Errors are never cached.
     """
     if not HENRIK_API_KEY:
-        raise RuntimeError("HENRIK_API_KEY is not set (legacy name: RIOT_API_KEY)")
+        raise RuntimeError("HENRIK_API_KEY is not set")
     key = (url, tuple(sorted((params or {}).items())))
     if ttl is not None:
         cached = _cache_get(key)

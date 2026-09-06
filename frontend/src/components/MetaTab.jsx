@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { askMeta, isCancelled } from "../api.js";
+import { askMeta, isCancelled, isDemoMode } from "../api.js";
 import { splitParagraphs, stripMarkdown } from "../utils.js";
-import { Spinner, ErrorBanner } from "./common.jsx";
+import { Spinner, AIErrorNotice, AIQuotaCaption } from "./common.jsx";
 import { Insignia } from "./Insignia.jsx";
 import Stopwatch from "./Stopwatch.jsx";
 import { track } from "../analytics.js";
@@ -95,11 +95,15 @@ export default function MetaTab() {
     try {
       const result = await askMeta(text, { signal: controller.signal });
       const elapsedMs = Math.round(performance.now() - t0);
-      track("meta_question", {
-        latency_ms: elapsedMs,
-        ok: true,
-        unavailable: false,
-      });
+      // Demo answers are canned fixtures — demo_started is the demo's only
+      // analytics event.
+      if (!isDemoMode()) {
+        track("meta_question", {
+          latency_ms: elapsedMs,
+          ok: true,
+          unavailable: false,
+        });
+      }
       setState((s) => ({ ...s, loading: false, result, elapsedMs }));
     } catch (err) {
       if (isCancelled(err)) {
@@ -107,15 +111,19 @@ export default function MetaTab() {
         return;
       }
       const unavailable = err.status === 503;
-      track("meta_question", {
-        latency_ms: Math.round(performance.now() - t0),
-        ok: false,
-        unavailable,
-      });
+      if (!isDemoMode()) {
+        track("meta_question", {
+          latency_ms: Math.round(performance.now() - t0),
+          ok: false,
+          unavailable,
+        });
+      }
       if (unavailable) {
         setState((s) => ({ ...s, loading: false, unavailable: true }));
       } else {
-        setState((s) => ({ ...s, loading: false, error: err.message }));
+        // Whole error object — AIErrorNotice renders the friendly
+        // daily-quota / per-minute copy from its header-derived fields.
+        setState((s) => ({ ...s, loading: false, error: err }));
       }
     }
   }
@@ -168,6 +176,11 @@ export default function MetaTab() {
             </button>
           ))}
         </div>
+        <AIQuotaCaption />
+        <p className="patch-link-line muted">
+          Prefer to read? <a href="/patch/">Browse the patch digests</a> —
+          summarized patch notes, no AI action needed.
+        </p>
       </section>
 
       {state.loading ? (
@@ -204,7 +217,7 @@ export default function MetaTab() {
       ) : null}
 
       {state.error ? (
-        <ErrorBanner message={state.error} onRetry={() => ask(state.asked)} />
+        <AIErrorNotice error={state.error} onRetry={() => ask(state.asked)} />
       ) : null}
 
       {state.result ? (

@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { analyzeMatches, isCancelled } from "../api.js";
+import { analyzeMatches, isCancelled, isDemoMode } from "../api.js";
 import {
+  isDemoPlayer,
   playerKey,
   relativeDate,
   splitParagraphs,
   stripMarkdown,
 } from "../utils.js";
 import { loadReport, saveReport } from "../reports.js";
-import { Spinner, ErrorBanner, EmptyState } from "./common.jsx";
+import {
+  Spinner,
+  EmptyState,
+  AIErrorNotice,
+  AIQuotaCaption,
+} from "./common.jsx";
 import { Insignia } from "./Insignia.jsx";
 import Stopwatch from "./Stopwatch.jsx";
 import { track } from "../analytics.js";
@@ -156,11 +162,18 @@ function Report({ analysis, matchCount, elapsedMs, at }) {
 }
 
 export default function AnalysisTab({ player }) {
+  // Module-level flag, set before the demo player state lands (the keyed
+  // remount re-renders this tab on every player change).
+  const demo = isDemoMode() && isDemoPlayer(player);
   const [state, setState] = useState(() => {
     // Hydrate the last saved analysis for this player — the keyed remount in
     // App.jsx re-runs this initializer on every player switch. Hydration
-    // fires no analyze_run analytics (tracking lives inside run()).
-    const saved = player ? loadReport("analysis", playerKey(player)) : null;
+    // fires no analyze_run analytics (tracking lives inside run()). The demo
+    // never touches the report cache in either direction.
+    const saved =
+      player && !isDemoPlayer(player)
+        ? loadReport("analysis", playerKey(player))
+        : null;
     return {
       loading: false,
       error: null,
@@ -177,6 +190,25 @@ export default function AnalysisTab({ player }) {
   useEffect(() => {
     return () => abortRef.current?.abort();
   }, []);
+
+  // Demo mode: seed the structured analysis from the fixtures module so the
+  // report is just *there* — display-only sample data, nothing persisted,
+  // no analytics. Guards make the StrictMode double-run idempotent.
+  useEffect(() => {
+    if (!demo) return undefined;
+    let alive = true;
+    import("../demo-fixtures.js").then((f) => {
+      if (!alive) return;
+      setState((s) =>
+        s.result || s.loading
+          ? s
+          : { ...s, result: f.demoAnalysis(), elapsedMs: null, at: null },
+      );
+    });
+    return () => {
+      alive = false;
+    };
+  }, [demo]);
 
   async function run() {
     if (!player || state.loading) return;
@@ -200,12 +232,15 @@ export default function AnalysisTab({ player }) {
         { signal: controller.signal }
       );
       const elapsedMs = Math.round(performance.now() - t0);
-      track("analyze_run", {
-        match_count: result.match_count ?? 0,
-        latency_ms: elapsedMs,
-        ok: true,
-      });
-      saveReport("analysis", playerKey(player), result);
+      // Demo runs are fixture lookups: no funnel analytics, no cache writes.
+      if (!demo) {
+        track("analyze_run", {
+          match_count: result.match_count ?? 0,
+          latency_ms: elapsedMs,
+          ok: true,
+        });
+        saveReport("analysis", playerKey(player), result);
+      }
       setState({
         loading: false,
         error: null,
@@ -228,14 +263,19 @@ export default function AnalysisTab({ player }) {
         });
         return;
       }
-      track("analyze_run", {
-        match_count: 0,
-        latency_ms: Math.round(performance.now() - t0),
-        ok: false,
-      });
+      if (!demo) {
+        track("analyze_run", {
+          match_count: 0,
+          latency_ms: Math.round(performance.now() - t0),
+          ok: false,
+        });
+      }
+      // Whole error object: AIErrorNotice keys the daily-quota copy on
+      // err.quotaExhausted and per-minute copy on err.status — never message
+      // sniffing.
       setState({
         loading: false,
-        error: err.message,
+        error: err,
         result: null,
         cancelled: false,
         elapsedMs: null,
@@ -282,6 +322,7 @@ export default function AnalysisTab({ player }) {
                 }`
               : "Analyze my last competitive matches"}
         </button>
+        <AIQuotaCaption />
         {state.loading ? (
           <div className="wait-row">
             <Spinner label="Claude is reviewing the matches — this can take up to a minute." />
@@ -301,7 +342,7 @@ export default function AnalysisTab({ player }) {
           </p>
         ) : null}
         {state.error ? (
-          <ErrorBanner message={state.error} onRetry={run} />
+          <AIErrorNotice error={state.error} onRetry={run} />
         ) : null}
       </section>
 

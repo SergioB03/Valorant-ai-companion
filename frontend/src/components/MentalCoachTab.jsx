@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { tiltCheck, coachChat, getMentalProfile, isCancelled } from "../api.js";
+import {
+  tiltCheck,
+  coachChat,
+  getMentalProfile,
+  isCancelled,
+  isDemoMode,
+} from "../api.js";
 import {
   LEVEL_COLORS,
+  isDemoPlayer,
   playerKey,
   relativeDate,
   shortDateTime,
@@ -9,7 +16,15 @@ import {
   stripMarkdown,
 } from "../utils.js";
 import { loadReport, saveReport } from "../reports.js";
-import { Spinner, ErrorBanner, EmptyState } from "./common.jsx";
+import { renderTiltCard, cardBlob } from "../share-card.js";
+import {
+  Spinner,
+  ErrorBanner,
+  EmptyState,
+  AIErrorNotice,
+  AIQuotaCaption,
+  CopyLinkButton,
+} from "./common.jsx";
 import { Insignia, AgentBadge } from "./Insignia.jsx";
 import TiltMeter from "./TiltMeter.jsx";
 import Sparkline from "./Sparkline.jsx";
@@ -124,12 +139,26 @@ function TrendPair({ label, trend, digits }) {
   );
 }
 
-export default function MentalCoachTab({ player, active }) {
+export default function MentalCoachTab({
+  player,
+  active,
+  autoRun,
+  onAutoRunDone,
+  canShare,
+}) {
+  // The module-level demo flag is set before the demo player state lands, so
+  // reading it during render is safe (the keyed remount re-renders this tab
+  // on every player change).
+  const demo = isDemoMode() && isDemoPlayer(player);
   const [tilt, setTilt] = useState(() => {
     // Hydrate the last saved tilt report for this player — the keyed remount
     // in App.jsx re-runs this initializer on every player switch. Hydration
     // fires no tilt_check analytics (tracking lives inside runTiltCheck).
-    const saved = player ? loadReport("tilt", playerKey(player)) : null;
+    // The demo never touches the report cache in either direction.
+    const saved =
+      player && !isDemoPlayer(player)
+        ? loadReport("tilt", playerKey(player))
+        : null;
     return {
       loading: false,
       error: null,
@@ -148,9 +177,11 @@ export default function MentalCoachTab({ player, active }) {
   const [sending, setSending] = useState(false);
   const [chatError, setChatError] = useState(null);
   const [profile, setProfile] = useState({ loading: false, error: null, data: null });
+  const [shareBusy, setShareBusy] = useState(false);
   const chatRef = useRef(null);
   const aliveRef = useRef(true);
   const activatedRef = useRef(false);
+  const autoRanRef = useRef(false);
   const tiltAbortRef = useRef(null);
   const chatAbortRef = useRef(null);
 
@@ -193,6 +224,48 @@ export default function MentalCoachTab({ player, active }) {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
   }, [messages, sending]);
 
+  // Demo mode: seed the tilt report and the canned coach exchange from the
+  // fixtures module so the wow moment is instant. Display-only sample data —
+  // the chat input is disabled and nothing here is persisted or tracked.
+  // Guards make the StrictMode double-run idempotent.
+  useEffect(() => {
+    if (!demo) return undefined;
+    let alive = true;
+    import("../demo-fixtures.js").then((f) => {
+      if (!alive) return;
+      setMessages((m) => (m.length === 0 ? f.demoChatSeed() : m));
+      setTilt((t) =>
+        t.report || t.loading
+          ? t
+          : { ...t, report: f.demoTiltReport(), elapsedMs: null, at: null },
+      );
+    });
+    return () => {
+      alive = false;
+    };
+  }, [demo]);
+
+  // Wave-3 ritual: `autoRun` is armed ONLY by the landing's explicit
+  // "Run tilt check now" tap — never by mounts, timers or URL players. The
+  // no-deps effect + ref guard keeps this a one-shot without dragging the
+  // whole closure into a dependency list. The run itself is deferred through
+  // a cleared-and-rearmed timeout: StrictMode's simulated unmount aborts any
+  // request started directly in an effect body (the abort-on-unmount cleanup
+  // fires between the double effect cycles), which showed up as an instant
+  // "tilt check cancelled" in dev.
+  useEffect(() => {
+    if (!autoRun || autoRanRef.current || !active || !player || demo) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      if (autoRanRef.current) return;
+      autoRanRef.current = true;
+      onAutoRunDone?.();
+      runTiltCheck();
+    }, 0);
+    return () => clearTimeout(timer);
+  });
+
   async function runTiltCheck() {
     if (!player || tilt.loading) return;
     const controller = new AbortController();
@@ -211,13 +284,17 @@ export default function MentalCoachTab({ player, active }) {
         signal: controller.signal,
       });
       const elapsedMs = Math.round(performance.now() - t0);
-      track("tilt_check", {
-        tilt_level: report.tilt_level,
-        tilt_score: report.tilt_score,
-        latency_ms: elapsedMs,
-        ok: true,
-      });
-      saveReport("tilt", playerKey(player), report);
+      // Demo runs are fixture lookups: no funnel analytics (demo_started is
+      // the demo's only event) and no writes to the report cache.
+      if (!demo) {
+        track("tilt_check", {
+          tilt_level: report.tilt_level,
+          tilt_score: report.tilt_score,
+          latency_ms: elapsedMs,
+          ok: true,
+        });
+        saveReport("tilt", playerKey(player), report);
+      }
       if (!aliveRef.current) return;
       setTilt({
         loading: false,
@@ -241,14 +318,19 @@ export default function MentalCoachTab({ player, active }) {
           });
         return;
       }
-      track("tilt_check", {
-        latency_ms: Math.round(performance.now() - t0),
-        ok: false,
-      });
+      if (!demo) {
+        track("tilt_check", {
+          latency_ms: Math.round(performance.now() - t0),
+          ok: false,
+        });
+      }
       if (!aliveRef.current) return;
+      // The whole error object is kept: AIErrorNotice keys the friendly
+      // daily-quota state on err.quotaExhausted (header-driven, never bare
+      // 429) and the per-minute copy on err.status.
       setTilt({
         loading: false,
-        error: err.message,
+        error: err,
         report: null,
         cancelled: false,
         elapsedMs: null,
@@ -263,11 +345,87 @@ export default function MentalCoachTab({ player, active }) {
     tiltAbortRef.current?.abort();
   }
 
+  // ---------- Shareable tilt-card PNG (Wave 2) ----------
+  // Canvas-rendered, first-person, app branding only. Offered ONLY for the
+  // actively-selected (vac:last-player) player — never URL-supplied ones
+  // (the `canShare` prop from App), so the card is a self-share, not a dunk
+  // tool. The analytics events carry a method flag and never an identity.
+
+  async function downloadCard() {
+    if (!tilt.report || shareBusy) return;
+    setShareBusy(true);
+    try {
+      const canvas = await renderTiltCard(player, tilt.report);
+      const blob = await cardBlob(canvas);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "my-tilt-check.png";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      track("share_card", { method: "download", ok: true });
+    } catch {
+      track("share_card", { method: "download", ok: false });
+    } finally {
+      if (aliveRef.current) setShareBusy(false);
+    }
+  }
+
+  function copyCard() {
+    if (!tilt.report || shareBusy) return;
+    // The ClipboardItem must be constructed synchronously inside the user
+    // gesture (Safari); the promise-valued blob is the sanctioned pattern.
+    const blobPromise = renderTiltCard(player, tilt.report).then(cardBlob);
+    setShareBusy(true);
+    navigator.clipboard
+      .write([new ClipboardItem({ "image/png": blobPromise })])
+      .then(
+        () => track("share_card", { method: "copy", ok: true }),
+        () => track("share_card", { method: "copy", ok: false }),
+      )
+      .finally(() => {
+        if (aliveRef.current) setShareBusy(false);
+      });
+  }
+
+  async function shareCard() {
+    if (!tilt.report || shareBusy) return;
+    setShareBusy(true);
+    try {
+      const canvas = await renderTiltCard(player, tilt.report);
+      const blob = await cardBlob(canvas);
+      const file = new File([blob], "my-tilt-check.png", { type: "image/png" });
+      if (navigator.canShare && !navigator.canShare({ files: [file] })) {
+        throw new Error("file sharing unsupported");
+      }
+      await navigator.share({ files: [file], title: "My tilt check" });
+      track("share_card", { method: "share", ok: true });
+    } catch (err) {
+      // A dismissed share sheet is not a failure worth logging.
+      if (!err || err.name !== "AbortError") {
+        track("share_card", { method: "share", ok: false });
+      }
+    } finally {
+      if (aliveRef.current) setShareBusy(false);
+    }
+  }
+
+  const canCopyCard =
+    typeof navigator !== "undefined" &&
+    Boolean(navigator.clipboard) &&
+    typeof ClipboardItem !== "undefined";
+  const canWebShare =
+    typeof navigator !== "undefined" && typeof navigator.share === "function";
+
   // Single send path for typed messages AND starter chips — the optimistic
   // append, rollback-and-restore on failure, and analytics live only here.
   async function send(rawText) {
     const text = (rawText || "").trim();
-    if (!text || sending || !player) return;
+    // No chat in demo mode — the input is disabled, this is defense in depth
+    // (/mental/coach spends Claude money even on failed player lookups).
+    if (!text || sending || !player || demo) return;
     setChatError(null);
     setInput("");
     // Snapshot the conversation *before* this message — it becomes the context
@@ -312,10 +470,11 @@ export default function MentalCoachTab({ player, active }) {
       });
       if (!aliveRef.current) return;
       // Roll back the optimistic user bubble and restore the draft so the
-      // user can retry the send.
+      // user can retry the send. The error object rides whole so the quota
+      // state renders its friendly copy.
       setMessages((m) => m.slice(0, -1));
       setInput(text);
-      setChatError(err.message);
+      setChatError(err);
     } finally {
       if (aliveRef.current) setSending(false);
     }
@@ -364,6 +523,7 @@ export default function MentalCoachTab({ player, active }) {
           Scans your last 10 competitive matches for loss streaks, KDA/headshot drops and
           trigger maps or agents, then asks the coach for a read.
         </p>
+        <AIQuotaCaption />
 
         {tilt.loading ? (
           <div className="wait-row">
@@ -384,12 +544,12 @@ export default function MentalCoachTab({ player, active }) {
           </p>
         ) : null}
         {tilt.error ? (
-          <ErrorBanner message={tilt.error} onRetry={runTiltCheck} />
+          <AIErrorNotice error={tilt.error} onRetry={runTiltCheck} />
         ) : null}
 
         {report ? (
           <div className="stack">
-            {tilt.elapsedMs != null || tilt.at != null ? (
+            {tilt.elapsedMs != null || tilt.at != null || !demo ? (
               <div className="chips">
                 {tilt.elapsedMs != null ? (
                   <span className="chip">
@@ -401,6 +561,7 @@ export default function MentalCoachTab({ player, active }) {
                 {tilt.at != null ? (
                   <span className="chip">generated {relativeDate(tilt.at)}</span>
                 ) : null}
+                {!demo ? <CopyLinkButton player={player} tab="mental" /> : null}
               </div>
             ) : null}
             <TiltMeter score={report.tilt_score} level={report.tilt_level} />
@@ -451,6 +612,45 @@ export default function MentalCoachTab({ player, active }) {
             {report.coach_message ? (
               <CommsCard text={report.coach_message} />
             ) : null}
+
+            {canShare && !demo ? (
+              <div className="share-row">
+                <span className="mini-title">Share my tilt check</span>
+                <div className="chips">
+                  <button
+                    type="button"
+                    className="btn ghost small"
+                    onClick={downloadCard}
+                    disabled={shareBusy}
+                  >
+                    Save image
+                  </button>
+                  {canCopyCard ? (
+                    <button
+                      type="button"
+                      className="btn ghost small"
+                      onClick={copyCard}
+                      disabled={shareBusy}
+                    >
+                      Copy image
+                    </button>
+                  ) : null}
+                  {canWebShare ? (
+                    <button
+                      type="button"
+                      className="btn ghost small"
+                      onClick={shareCard}
+                      disabled={shareBusy}
+                    >
+                      Share…
+                    </button>
+                  ) : null}
+                </div>
+                <span className="share-note muted">
+                  A PNG of this score — AI estimate from public match data.
+                </span>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -484,7 +684,7 @@ export default function MentalCoachTab({ player, active }) {
             role="log"
             aria-label="Coach conversation"
           >
-            {messages.length === 0 ? (
+            {messages.length === 0 && !demo ? (
               <div className="chat-hint chat-starters">
                 <p className="muted">Ask anything, or start with one of these:</p>
                 <div className="chips">
@@ -527,23 +727,31 @@ export default function MentalCoachTab({ player, active }) {
               </div>
             ) : null}
           </div>
-          {chatError ? <ErrorBanner message={chatError} /> : null}
+          {chatError ? <AIErrorNotice error={chatError} /> : null}
           <form className="chat-input" onSubmit={handleChatSubmit}>
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Message the coach…"
+              placeholder={
+                demo ? "Track a real player to chat" : "Message the coach…"
+              }
               aria-label="Message the coach"
-              disabled={sending}
+              disabled={sending || demo}
             />
             <button
               type="submit"
               className="btn accent"
-              disabled={sending || !input.trim()}
+              disabled={sending || demo || !input.trim()}
             >
               Send
             </button>
           </form>
+          {demo ? (
+            <p className="muted demo-chat-note">
+              The exchange above is sample data — track a real player to talk
+              to the coach about your own games.
+            </p>
+          ) : null}
         </div>
       </section>
 

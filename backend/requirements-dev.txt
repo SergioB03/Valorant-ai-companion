@@ -7,12 +7,12 @@
 # test starts failing, that mismatch is the first thing to check.
 
 anthropic==0.96.0
-fastapi==0.141.1
+fastapi==0.142.2
 httpx==0.28.1
 pydantic==2.13.5
 python-dotenv==1.2.3
 slowapi==0.1.10
-starlette==1.6.0
+starlette==1.7.0
 
 pytest==9.1.1
 boto3
